@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-import crtbp
+from engine import crtbp
 
 EARTH_RADIUS_KM = 6371.0
 EARTH_RADIUS_ND = EARTH_RADIUS_KM / crtbp.LENGTH_UNIT_KM

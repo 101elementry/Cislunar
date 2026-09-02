@@ -18,8 +18,8 @@ Orbits are passed around as plain dictionaries with keys
 import numpy as np
 from scipy.optimize import minimize_scalar
 
-import crtbp
-from crtbp import MU
+from engine import crtbp
+from engine.crtbp import MU
 
 
 # --------------------------------------------------------------------------

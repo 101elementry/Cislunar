@@ -3,9 +3,9 @@ Scenario data model and JSON save/load.
 
 A scenario is a time span plus a tree of objects: spacecraft, ground
 stations, and optical sensors attached to ground stations.  This module
-holds only the description of the scenario.  Propagation and analysis
-live in analysis.py, and the interface in app.py only reads and edits
-these objects.
+holds only the description of the scenario.  The engine does the
+physics (see model/runner.py for the translation) and app/ only reads
+and edits these objects.
 
 Conventions
   * Spacecraft initial states are in the non-dimensional Earth-Moon
@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, asdict
 
 import numpy as np
 
-import crtbp
+from engine import crtbp
 
 
 @dataclass

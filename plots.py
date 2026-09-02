@@ -21,12 +21,11 @@ from matplotlib import animation
 from matplotlib.collections import LineCollection
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
-import crtbp
-import corrector
-from crtbp import MU
+from engine import crtbp, corrector
+from engine.crtbp import MU
+from model.family import FAMILY_FILE, load_family
 
 OUTPUT_DIR = "output"
-FAMILY_FILE = os.path.join(OUTPUT_DIR, "halo_family.npz")
 
 # Approximate period of a 9:2 lunar-synodic resonant NRHO (the Gateway
 # orbit): two revolutions per nine synodic months, in TU.  Used to pick a
@@ -442,13 +441,7 @@ def animate_nrho(orbit, path=os.path.join(OUTPUT_DIR, "fig6_nrho_animation.gif")
 def load_or_build_family():
     """Load the family saved by validate.py, or compute it."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    if os.path.exists(FAMILY_FILE):
-        data = np.load(FAMILY_FILE)
-        return corrector.arrays_to_family({key: data[key] for key in data.files})
-    family = corrector.build_l2_southern_family(
-        stop_perilune_radius=crtbp.length_to_nondim(1800.0), verbose=True)
-    np.savez(FAMILY_FILE, **corrector.family_to_arrays(family))
-    return family
+    return load_family()
 
 
 def make_all_figures(family):

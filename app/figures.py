@@ -1,14 +1,13 @@
 """
-Plotly figure builders.  Pure functions of analysis results: they take
-arrays and return figures, so the interface callbacks stay thin and the
-same figures can be produced from a script.
+Plotly figure builders for the interface.  They take engine results
+(arrays and geometry series) and return figures; no analysis happens
+here.
 """
 
 import numpy as np
 import plotly.graph_objects as go
 
-import crtbp
-from mission import frames
+from engine import crtbp, frames
 
 # Number of points drawn per trajectory.  The analysis grid can have tens
 # of thousands of samples; the browser only needs a few thousand.
@@ -60,7 +59,7 @@ def rotating_frame_figure(trajectories, geometry, station_positions=None, marker
     3D view of the rotating frame.
 
     trajectories      : {name: states (n, 6)} in LU.
-    geometry          : dictionary from analysis.fixed_geometry().
+    geometry          : dictionary from engine.propagation.fixed_points().
     station_positions : optional {name: positions (n, 3)} to draw station
                         tracks on the Earth.
     marker_states     : optional {name: state (6,)} for the current-time
@@ -133,21 +132,21 @@ PLOT_LAYOUT = dict(template="plotly_white",
                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
 
 
-def time_series_figure(times_s, observation, station, sensor, windows, current_time_s=None):
+def time_series_figure(series, thresholds, windows, current_time_s=None):
     """
     Elevation, apparent magnitude and lunar separation against time, with
-    the constraint thresholds drawn as dashed lines, the access windows
-    shaded, and an optional vertical marker at the current time.
+    constraint thresholds as dashed lines, access windows shaded, and an
+    optional vertical marker at the current time.
 
-    times_s      : (n,) seconds past the epoch
-    observation  : dictionary from analysis.observe
-    station      : GroundStation (for the elevation threshold)
-    sensor       : OpticalSensor or None (magnitude and exclusion thresholds)
-    windows      : list of (start_s, stop_s)
+    series     : engine.geometry.GeometrySeries
+    thresholds : {"elevation_deg": value or None,
+                  "apparent_magnitude": value or None,
+                  "lunar_separation_deg": value or None}
+    windows    : list of (start_s, stop_s)
     """
     from plotly.subplots import make_subplots
 
-    days = np.asarray(times_s) / 86400.0
+    days = np.asarray(series.time_s) / 86400.0
     stride = max(1, int(np.ceil(len(days) / MAX_PLOT_POINTS)))
     shown_days = days[::stride]
 
@@ -156,18 +155,16 @@ def time_series_figure(times_s, observation, station, sensor, windows, current_t
                                            "Apparent magnitude (brighter is up)",
                                            "Angular separation from the Moon [deg]"))
 
-    series = [("elevation_deg", SERIES_BLUE, station.min_elevation_deg, "min elevation"),
-              ("apparent_magnitude", SERIES_ORANGE,
-               None if sensor is None else sensor.limiting_magnitude, "limiting magnitude"),
-              ("lunar_separation_deg", SERIES_AQUA,
-               None if sensor is None else sensor.lunar_exclusion_deg, "lunar exclusion")]
+    panels = [("elevation_deg", series.elevation_deg, SERIES_BLUE, "min elevation"),
+              ("apparent_magnitude", series.apparent_magnitude, SERIES_ORANGE, "limiting magnitude"),
+              ("lunar_separation_deg", series.lunar_separation_deg, SERIES_AQUA, "lunar exclusion")]
 
-    for row, (key, color, threshold, threshold_name) in enumerate(series, start=1):
-        values = observation[key][::stride]
-        figure.add_trace(go.Scatter(x=shown_days, y=values, mode="lines", name=key,
+    for row, (key, values, color, threshold_name) in enumerate(panels, start=1):
+        figure.add_trace(go.Scatter(x=shown_days, y=values[::stride], mode="lines", name=key,
                                     line=dict(color=color, width=2), showlegend=False,
                                     hovertemplate="day %{x:.2f}<br>%{y:.2f}<extra></extra>"),
                          row=row, col=1)
+        threshold = thresholds.get(key)
         if threshold is not None:
             figure.add_hline(y=threshold, line=dict(color=TEXT_SECONDARY, width=1, dash="dash"),
                              annotation_text=threshold_name, annotation_position="top right",

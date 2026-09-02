@@ -19,38 +19,6 @@
       "propagation": "periodic",
       "diameter_m": 6.0,
       "albedo": 0.25
-    },
-    {
-      "name": "Free-flyer",
-      "source": "state",
-      "initial_state": [
-        1.0221,
-        0.0,
-        -0.1821,
-        0.0,
-        -0.1018,
-        0.0
-      ],
-      "family_index": 49,
-      "propagation": "integrate",
-      "diameter_m": 4.0,
-      "albedo": 0.2
-    },
-    {
-      "name": "Free-flyer 2",
-      "source": "state",
-      "initial_state": [
-        1.0221,
-        0.0,
-        -0.1821,
-        0.0,
-        -0.1018,
-        0.0
-      ],
-      "family_index": 49,
-      "propagation": "integrate",
-      "diameter_m": 4.0,
-      "albedo": 0.2
     }
   ],
   "ground_stations": [

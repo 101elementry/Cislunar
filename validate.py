@@ -16,10 +16,9 @@ import os
 
 import numpy as np
 
-import crtbp
-import corrector
 import plots
-from crtbp import MU
+from engine import crtbp, corrector
+from engine.crtbp import MU
 
 
 def check_jacobi_drift(state0, duration=10.0, label=""):

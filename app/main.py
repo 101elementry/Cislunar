@@ -1,6 +1,6 @@
 """
 Dash interface for the cislunar mission tool.  Run from the repository
-root:  python -m mission.app   then open http://127.0.0.1:8050
+root:  python -m app.main   then open http://127.0.0.1:8050
 
 Layout
   top     scenario settings, run / save / load, view selector
@@ -10,9 +10,8 @@ Layout
   bottom  elevation, magnitude and lunar separation against time,
           and a time slider that moves a marker in the 3D view
 
-Callbacks only move data between the scenario store, the analysis
-functions and the figure builders.  Nothing here computes physics; see
-mission/analysis.py and mission/figures.py, which run without Dash.
+Callbacks only move data between the scenario store, model.runner and
+the figure builders.  Nothing here computes physics or geometry.
 """
 
 import base64
@@ -24,19 +23,23 @@ from datetime import datetime, timedelta
 import numpy as np
 from dash import Dash, dcc, html, dash_table, Input, Output, State, ALL, ctx, no_update
 
-import crtbp
-from mission import analysis, figures
-from mission.scenario import Scenario, Spacecraft, GroundStation, OpticalSensor, example_scenario
+from engine import crtbp, propagation
+from model import runner
+from model.family import load_family
+from model.scenario import Scenario, Spacecraft, GroundStation, OpticalSensor, example_scenario
+from app import figures
 
-app = Dash(__name__, title="Cislunar mission tool", suppress_callback_exceptions=True)
+dash_app = Dash(__name__, title="Cislunar mission tool", suppress_callback_exceptions=True)
 
 # Results of the last run, kept in memory on the server.  The app runs
 # locally for one user, so a module-level dictionary is enough; the
 # browser only holds the run id.
 RESULTS = {}
-FAMILY = analysis.load_family()
-FAMILY_LABELS = analysis.family_summary(FAMILY)
-GEOMETRY = analysis.fixed_geometry()
+FAMILY = load_family()
+FAMILY_LABELS = [f"{index}: T = {crtbp.time_to_days(orbit['period']):.2f} d, "
+                 f"perilune {crtbp.length_to_km(orbit['perilune_radius']):,.0f} km, C = {orbit['jacobi']:.4f}"
+                 for index, orbit in enumerate(FAMILY)]
+FIXED_POINTS = propagation.fixed_points()
 
 TREE_GLYPH = {"spacecraft": ("◆", "glyph-spacecraft"),
               "ground_station": ("▲", "glyph-station"),
@@ -61,7 +64,7 @@ def panel(title, body, header_extra=None, body_class="panel-body"):
 
 initial_scenario = example_scenario()
 
-app.layout = html.Div([
+dash_app.layout = html.Div([
     dcc.Store(id="scenario-store", data=initial_scenario.to_dict()),
     dcc.Store(id="selected-store", data=None),
     dcc.Store(id="results-store", data=None),
@@ -187,7 +190,7 @@ def tree_item(obj, selected, meta, child=False):
                        id={"type": "tree-item", "name": obj.name}, className=class_name, n_clicks=0)
 
 
-@app.callback(Output("tree", "children"),
+@dash_app.callback(Output("tree", "children"),
               Input("scenario-store", "data"), Input("selected-store", "data"))
 def render_tree(scenario_data, selected):
     scenario = Scenario.from_dict(scenario_data)
@@ -227,7 +230,7 @@ def prop_dropdown(name, value, options):
                         clearable=False, className="dash-dropdown")
 
 
-@app.callback(Output("form", "children"), Output("apply-button", "hidden"),
+@dash_app.callback(Output("form", "children"), Output("apply-button", "hidden"),
               Input("selected-store", "data"), State("scenario-store", "data"))
 def render_form(selected, scenario_data):
     scenario = Scenario.from_dict(scenario_data)
@@ -282,7 +285,7 @@ def render_form(selected, scenario_data):
 # Scenario edits: selection, add, remove, apply, settings, load
 # --------------------------------------------------------------------------
 
-@app.callback(Output("scenario-store", "data"), Output("selected-store", "data"),
+@dash_app.callback(Output("scenario-store", "data"), Output("selected-store", "data"),
               Output("scenario-name", "value"), Output("scenario-epoch", "value"),
               Output("scenario-duration", "value"), Output("scenario-step", "value"),
               Input({"type": "tree-item", "name": ALL}, "n_clicks"),
@@ -374,7 +377,7 @@ def edit_scenario(tree_clicks, add_clicks, remove_clicks, apply_clicks, upload_c
     return scenario.to_dict(), no_update, *settings_unchanged
 
 
-@app.callback(Output("download", "data"), Input("save-button", "n_clicks"),
+@dash_app.callback(Output("download", "data"), Input("save-button", "n_clicks"),
               State("scenario-store", "data"), prevent_initial_call=True)
 def save_scenario(n_clicks, scenario_data):
     scenario = Scenario.from_dict(scenario_data)
@@ -386,7 +389,7 @@ def save_scenario(n_clicks, scenario_data):
 # Run the analysis
 # --------------------------------------------------------------------------
 
-@app.callback(Output("results-store", "data"), Output("run-status", "children"),
+@dash_app.callback(Output("results-store", "data"), Output("run-status", "children"),
               Output("pair-select", "options"), Output("pair-select", "value"),
               Output("time-slider", "max"), Output("time-slider", "marks"), Output("time-slider", "value"),
               Input("run-button", "n_clicks"), State("scenario-store", "data"),
@@ -394,7 +397,7 @@ def save_scenario(n_clicks, scenario_data):
 def run_analysis(n_clicks, scenario_data, current_pair):
     scenario = Scenario.from_dict(scenario_data)
     started = time.perf_counter()
-    results = analysis.run_scenario(scenario, FAMILY)
+    results = runner.run_scenario(scenario, FAMILY)
     elapsed = time.perf_counter() - started
 
     run_id = str(uuid.uuid4())
@@ -422,7 +425,7 @@ def run_analysis(n_clicks, scenario_data, current_pair):
 # Results: windows table and summary
 # --------------------------------------------------------------------------
 
-@app.callback(Output("windows-table", "data"), Output("summary", "children"),
+@dash_app.callback(Output("windows-table", "data"), Output("summary", "children"),
               Input("pair-select", "value"), Input("results-store", "data"))
 def update_windows(pair, run_id):
     if run_id not in RESULTS or not pair:
@@ -456,11 +459,11 @@ def update_windows(pair, run_id):
     ], className="stat-row")
 
     # How much of the span each individual constraint allows, so it is
-    # obvious which one is doing the cutting.
+    # obvious which one is doing the cutting.  Names come from the
+    # constraint functions themselves.
     chips = []
-    for label, key_name in (("horizon", "above_horizon"), ("dark", "station_dark"),
-                            ("lit", "spacecraft_lit"), ("moon", "clear_of_moon"), ("mag", "bright_enough")):
-        chips.append(html.Span(f"{label} {100.0 * observation[key_name].mean():.0f}%", className="chip"))
+    for name, column in zip(observation["constraint_names"], observation["constraint_masks"].T):
+        chips.append(html.Span(f"{name}: {100.0 * column.mean():.0f}%", className="chip"))
     return rows, [stats, html.Div(chips, className="constraints")]
 
 
@@ -468,12 +471,12 @@ def update_windows(pair, run_id):
 # 3D view, time series and slider
 # --------------------------------------------------------------------------
 
-@app.callback(Output("view-3d", "figure"), Output("time-series", "figure"), Output("time-readout", "children"),
+@dash_app.callback(Output("view-3d", "figure"), Output("time-series", "figure"), Output("time-readout", "children"),
               Input("results-store", "data"), Input("pair-select", "value"),
               Input("time-slider", "value"), Input("view-select", "value"))
 def update_views(run_id, pair, slider_index, view):
     if run_id not in RESULTS:
-        figure_3d = figures.rotating_frame_figure({}, GEOMETRY, view=view)
+        figure_3d = figures.rotating_frame_figure({}, FIXED_POINTS, view=view)
         return figure_3d, figures.empty_time_series_figure(), ""
 
     scenario = RESULTS[run_id]["scenario"]
@@ -482,21 +485,18 @@ def update_views(run_id, pair, slider_index, view):
     current_time_s = results["times_s"][index]
 
     markers = {name: states[index] for name, states in results["trajectories"].items()}
-    figure_3d = figures.rotating_frame_figure(results["trajectories"], GEOMETRY,
+    figure_3d = figures.rotating_frame_figure(results["trajectories"], FIXED_POINTS,
                                               station_positions=results["stations"],
                                               marker_states=markers, view=view)
 
     if pair:
-        observer, spacecraft_name = pair_key(pair)
-        sensor = scenario.find(observer)
-        if isinstance(sensor, OpticalSensor):
-            station = scenario.find(sensor.station)
-        else:
-            station = sensor
-            sensor = None
-        key = (observer, spacecraft_name)
-        figure_series = figures.time_series_figure(results["times_s"], results["observations"][key],
-                                                   station, sensor, results["windows"][key], current_time_s)
+        key = pair_key(pair)
+        station, sensor = runner.observer_settings(scenario, key[0])
+        thresholds = {"elevation_deg": station.min_elevation_deg if station else None,
+                      "apparent_magnitude": sensor.limiting_magnitude if sensor else None,
+                      "lunar_separation_deg": sensor.lunar_exclusion_deg if sensor else None}
+        figure_series = figures.time_series_figure(results["observations"][key]["geometry"], thresholds,
+                                                   results["windows"][key], current_time_s)
     else:
         figure_series = figures.empty_time_series_figure("No observer-spacecraft pairs in this scenario")
 
@@ -506,4 +506,4 @@ def update_views(run_id, pair, slider_index, view):
 
 
 if __name__ == "__main__":
-    app.run(debug=False, host="127.0.0.1", port=8050)
+    dash_app.run(debug=False, host="127.0.0.1", port=8050)
