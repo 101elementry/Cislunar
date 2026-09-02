@@ -110,8 +110,94 @@ def rotating_frame_figure(trajectories, geometry, station_positions=None, marker
                    zaxis=dict(title="z [LU]", range=[lower[2], upper[2]]),
                    aspectmode="manual",
                    aspectratio=dict(x=ratio[0], y=ratio[1], z=ratio[2]),
-                   camera=dict(eye=dict(x=1.0, y=-1.3, z=0.6))),
+                   camera=dict(eye=dict(x=0.75, y=-1.0, z=0.45))),
         margin=dict(l=0, r=0, t=30, b=0),
         legend=dict(orientation="h", yanchor="bottom", y=1.0),
         uirevision=view)
+    return figure
+
+
+# --------------------------------------------------------------------------
+# Time series
+# --------------------------------------------------------------------------
+
+SERIES_BLUE = "#2a78d6"
+SERIES_ORANGE = "#eb6834"
+SERIES_AQUA = "#1baf7a"
+TEXT_SECONDARY = "#52514e"
+GRID = "#ebebe7"
+
+PLOT_LAYOUT = dict(template="plotly_white",
+                   font=dict(family="-apple-system, BlinkMacSystemFont, Segoe UI, Inter, Roboto, Arial, sans-serif",
+                             size=12, color="#0b0b0b"),
+                   paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+
+
+def time_series_figure(times_s, observation, station, sensor, windows, current_time_s=None):
+    """
+    Elevation, apparent magnitude and lunar separation against time, with
+    the constraint thresholds drawn as dashed lines, the access windows
+    shaded, and an optional vertical marker at the current time.
+
+    times_s      : (n,) seconds past the epoch
+    observation  : dictionary from analysis.observe
+    station      : GroundStation (for the elevation threshold)
+    sensor       : OpticalSensor or None (magnitude and exclusion thresholds)
+    windows      : list of (start_s, stop_s)
+    """
+    from plotly.subplots import make_subplots
+
+    days = np.asarray(times_s) / 86400.0
+    stride = max(1, int(np.ceil(len(days) / MAX_PLOT_POINTS)))
+    shown_days = days[::stride]
+
+    figure = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.08,
+                           subplot_titles=("Elevation above horizon [deg]",
+                                           "Apparent magnitude (brighter is up)",
+                                           "Angular separation from the Moon [deg]"))
+
+    series = [("elevation_deg", SERIES_BLUE, station.min_elevation_deg, "min elevation"),
+              ("apparent_magnitude", SERIES_ORANGE,
+               None if sensor is None else sensor.limiting_magnitude, "limiting magnitude"),
+              ("lunar_separation_deg", SERIES_AQUA,
+               None if sensor is None else sensor.lunar_exclusion_deg, "lunar exclusion")]
+
+    for row, (key, color, threshold, threshold_name) in enumerate(series, start=1):
+        values = observation[key][::stride]
+        figure.add_trace(go.Scatter(x=shown_days, y=values, mode="lines", name=key,
+                                    line=dict(color=color, width=2), showlegend=False,
+                                    hovertemplate="day %{x:.2f}<br>%{y:.2f}<extra></extra>"),
+                         row=row, col=1)
+        if threshold is not None:
+            figure.add_hline(y=threshold, line=dict(color=TEXT_SECONDARY, width=1, dash="dash"),
+                             annotation_text=threshold_name, annotation_position="top right",
+                             annotation_font=dict(size=10, color=TEXT_SECONDARY), row=row, col=1)
+
+    for start, stop in windows:
+        figure.add_vrect(x0=start / 86400.0, x1=stop / 86400.0, fillcolor=SERIES_AQUA, opacity=0.12,
+                         line_width=0)
+
+    if current_time_s is not None:
+        figure.add_vline(x=current_time_s / 86400.0, line=dict(color="#0b0b0b", width=1.2))
+
+    figure.update_yaxes(autorange="reversed", row=2, col=1)
+    figure.update_xaxes(title_text="days from epoch", row=3, col=1)
+    figure.update_xaxes(showgrid=True, gridcolor=GRID, zeroline=False)
+    figure.update_yaxes(showgrid=True, gridcolor=GRID, zeroline=False)
+    figure.update_layout(height=360, margin=dict(l=50, r=20, t=30, b=40), hovermode="x unified",
+                         **PLOT_LAYOUT)
+    for annotation in figure.layout.annotations[:3]:
+        annotation.font.size = 12
+        annotation.font.color = TEXT_SECONDARY
+        annotation.x = 0.0
+        annotation.xanchor = "left"
+    return figure
+
+
+def empty_time_series_figure(message="Run the analysis to see time series"):
+    """Placeholder shown before the first run."""
+    figure = go.Figure()
+    figure.add_annotation(text=message, showarrow=False, font=dict(size=13, color=TEXT_SECONDARY))
+    figure.update_layout(height=360, margin=dict(l=50, r=20, t=30, b=40),
+                         xaxis=dict(visible=False), yaxis=dict(visible=False), **PLOT_LAYOUT)
     return figure
