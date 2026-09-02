@@ -68,7 +68,7 @@
       "name": "Sydney 0.5 m telescope",
       "station": "Sydney",
       "limiting_magnitude": 18.5,
-      "lunar_exclusion_deg": 20.0
+      "lunar_exclusion_deg": 2.0
     }
   ]
 }

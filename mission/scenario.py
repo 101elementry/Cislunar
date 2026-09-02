@@ -81,6 +81,9 @@ class OpticalSensor:
     limiting_magnitude   : faintest apparent magnitude it can detect.
     lunar_exclusion_deg  : minimum angle between the line of sight and
                            the Moon, to keep lunar glare out of the field.
+                           Note that from Earth an L2 NRHO never gets
+                           more than about 10 degrees from the Moon, so
+                           values above that give no access at all.
     """
     name: str
     station: str = ""
@@ -238,5 +241,5 @@ def example_scenario():
                                altitude_km=0.05, min_elevation_deg=15.0,
                                max_sun_elevation_deg=-12.0))
     scenario.add(OpticalSensor(name="Sydney 0.5 m telescope", station="Sydney",
-                               limiting_magnitude=18.5, lunar_exclusion_deg=20.0))
+                               limiting_magnitude=18.5, lunar_exclusion_deg=2.0))
     return scenario
