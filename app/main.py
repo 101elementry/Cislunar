@@ -54,12 +54,18 @@ def setting(label, component):
     return html.Div([html.Label(label), component], className="setting")
 
 
-def panel(title, body, header_extra=None, body_class="panel-body"):
+def panel(title, body, header_extra=None, body_class="panel-body", panel_id=None):
     header_children = [html.Span(title, className="panel-title")]
     if header_extra is not None:
         header_children.append(header_extra)
-    return html.Div([html.Div(header_children, className="panel-header"),
-                     html.Div(body, className=body_class)], className="panel")
+    children = [html.Div(header_children, className="panel-header"), html.Div(body, className=body_class)]
+    if panel_id is None:
+        return html.Div(children, className="panel")
+    return html.Div(children, className="panel", id=panel_id)
+
+
+def toggle_button(label, button_id):
+    return html.Button(label, id=button_id, className="toggle active", n_clicks=0)
 
 
 initial_scenario = example_scenario()
@@ -68,6 +74,7 @@ dash_app.layout = html.Div([
     dcc.Store(id="scenario-store", data=initial_scenario.to_dict()),
     dcc.Store(id="selected-store", data=None),
     dcc.Store(id="results-store", data=None),
+    dcc.Store(id="layout-store", data={"left": True, "right": True, "bottom": True}),
     dcc.Download(id="download"),
 
     # ---- top bar ----
@@ -89,6 +96,12 @@ dash_app.layout = html.Div([
                                                                 {"label": "Whole system", "value": "system"}])),
         ], className="settings"),
         html.Div([
+            html.Span("Panels", className="panel-title"),
+            toggle_button("Tree", "toggle-left"),
+            toggle_button("Windows", "toggle-right"),
+            toggle_button("Time series", "toggle-bottom"),
+        ], className="toggles"),
+        html.Div([
             html.Button("Run analysis", id="run-button", className="primary", n_clicks=0),
             html.Button("Save JSON", id="save-button", n_clicks=0),
             dcc.Upload(html.Div("Load JSON", className="upload-box"), id="load-upload", multiple=False),
@@ -107,17 +120,52 @@ dash_app.layout = html.Div([
                 html.Button("Add", id="add-button", className="small", n_clicks=0),
                 html.Button("Remove", id="remove-button", className="small danger", n_clicks=0),
             ], className="add-row"),
+            html.Details([
+                html.Summary("Add several halo family members"),
+                html.Div([
+                    html.Div([html.Label("From"), dcc.Input(id="range-from", type="number", value=0, min=0,
+                                                            max=len(FAMILY) - 1, step=1)], className="field"),
+                    html.Div([html.Label("To"), dcc.Input(id="range-to", type="number", value=len(FAMILY) - 1, min=0,
+                                                          max=len(FAMILY) - 1, step=1)], className="field"),
+                    html.Div([html.Label("Every"), dcc.Input(id="range-step", type="number", value=10, min=1, step=1)],
+                             className="field"),
+                ], className="form-row three"),
+                html.Button("Add members", id="add-range-button", className="small", n_clicks=0),
+                html.Span(f"Family has {len(FAMILY)} members: index 0 is the largest halo, "
+                          f"{len(FAMILY) - 1} has the lowest perilune.", className="hint"),
+            ], className="details"),
+            html.Details([
+                html.Summary("How to set up a simulation"),
+                html.Ol([
+                    html.Li("Set the epoch, duration and step at the top."),
+                    html.Li("Add spacecraft: a halo family member (periodic, station-kept) or your own "
+                            "rotating-frame initial state (integrated)."),
+                    html.Li("Add a ground station and, optionally, an optical sensor on it."),
+                    html.Li("Select an object, edit its fields, press Apply."),
+                    html.Li("Press Run analysis. Pick an observer-spacecraft pair on the right."),
+                    html.Li("Save JSON to keep the scenario; scripts/ shows how to sweep it without the GUI."),
+                ], className="help"),
+            ], className="details"),
             html.Div(className="divider"),
             html.Div(id="form", className="form"),
             html.Div([html.Button("Apply", id="apply-button", className="primary small", n_clicks=0, hidden=True)],
                      className="form-actions"),
-        ]),
-        panel("Rotating frame", dcc.Graph(id="view-3d", style={"height": "100%"},
+        ], panel_id="left-panel"),
+        panel("Rotating frame", dcc.Graph(id="view-3d", style={"height": "100%"}, responsive=True,
                                           config={"displaylogo": False}),
               header_extra=html.Span(id="run-status", className="status"),
               body_class="panel-body flush"),
         panel("Access windows", [
             dcc.Dropdown(id="pair-select", className="dash-dropdown", clearable=False, placeholder="observer → spacecraft"),
+            html.Details([
+                html.Summary("What this shows"),
+                html.P("An access window is a run of time steps in which the chosen observer can see the "
+                       "chosen spacecraft: every constraint passes at once. The constraints come from the "
+                       "station (elevation cutoff, darkness) and the sensor (limiting magnitude, lunar "
+                       "exclusion), plus the spacecraft being sunlit. Each chip gives the fraction of the "
+                       "span that one constraint alone would allow, so you can see which one is cutting. "
+                       "Duty cycle is the fraction of the whole span inside windows.", className="help-text"),
+            ], className="details"),
             html.Div(id="summary"),
             dash_table.DataTable(id="windows-table",
                                  columns=[{"name": "#", "id": "index"},
@@ -129,14 +177,19 @@ dash_app.layout = html.Div([
                                  style_cell={"padding": "5px 8px", "textAlign": "left", "whiteSpace": "nowrap"},
                                  style_cell_conditional=[{"if": {"column_id": "index"}, "width": "30px"},
                                                          {"if": {"column_id": "duration"}, "textAlign": "right"}]),
-        ]),
-    ], className="main"),
+        ], panel_id="right-panel"),
+    ], className="main", id="main-row"),
 
     # ---- bottom ----
     html.Div([
         panel("Time series", [
-            dcc.Graph(id="time-series", figure=figures.empty_time_series_figure(),
-                      config={"displaylogo": False}),
+            dcc.Graph(id="time-series", figure=figures.empty_time_series_figure(), responsive=True,
+                      style={"height": "360px"}, config={"displaylogo": False}),
+            html.Div("Green bands are the access windows. Dashed lines are the thresholds: the spacecraft must "
+                     "be above the elevation line, brighter (lower on the reversed magnitude axis) than the "
+                     "limiting magnitude, and farther from the Moon than the exclusion angle. Darkness and "
+                     "shadow are not drawn but still apply. The black line is the slider time.",
+                     className="help-text panel-note"),
             html.Div([
                 html.Span("Time", className="panel-title"),
                 html.Div(dcc.Slider(id="time-slider", min=0, max=1, step=1, value=0, marks={},
@@ -144,9 +197,43 @@ dash_app.layout = html.Div([
                          className="slider"),
                 html.Span(id="time-readout", className="time-readout"),
             ], className="slider-row"),
-        ], body_class="panel-body flush"),
+        ], body_class="panel-body flush", panel_id="bottom-panel"),
     ], className="bottom"),
 ], className="app")
+
+
+# --------------------------------------------------------------------------
+# Panel visibility
+# --------------------------------------------------------------------------
+
+@dash_app.callback(Output("layout-store", "data"),
+                   Input("toggle-left", "n_clicks"), Input("toggle-right", "n_clicks"),
+                   Input("toggle-bottom", "n_clicks"), State("layout-store", "data"),
+                   prevent_initial_call=True)
+def toggle_panels(left_clicks, right_clicks, bottom_clicks, layout):
+    key = {"toggle-left": "left", "toggle-right": "right", "toggle-bottom": "bottom"}[ctx.triggered_id]
+    layout = dict(layout)
+    layout[key] = not layout[key]
+    return layout
+
+
+@dash_app.callback(Output("main-row", "className"), Output("left-panel", "hidden"),
+                   Output("right-panel", "hidden"), Output("bottom-panel", "hidden"),
+                   Output("toggle-left", "className"), Output("toggle-right", "className"),
+                   Output("toggle-bottom", "className"),
+                   Input("layout-store", "data"))
+def apply_panel_layout(layout):
+    main_class = "main"
+    if not layout["left"]:
+        main_class = main_class + " hide-left"
+    if not layout["right"]:
+        main_class = main_class + " hide-right"
+
+    def button_class(shown):
+        return "toggle active" if shown else "toggle"
+
+    return (main_class, not layout["left"], not layout["right"], not layout["bottom"],
+            button_class(layout["left"]), button_class(layout["right"]), button_class(layout["bottom"]))
 
 
 # --------------------------------------------------------------------------
@@ -289,16 +376,19 @@ def render_form(selected, scenario_data):
               Output("scenario-name", "value"), Output("scenario-epoch", "value"),
               Output("scenario-duration", "value"), Output("scenario-step", "value"),
               Input({"type": "tree-item", "name": ALL}, "n_clicks"),
-              Input("add-button", "n_clicks"), Input("remove-button", "n_clicks"),
+              Input("add-button", "n_clicks"), Input("add-range-button", "n_clicks"),
+              Input("remove-button", "n_clicks"),
               Input("apply-button", "n_clicks"), Input("load-upload", "contents"),
               Input("scenario-name", "value"), Input("scenario-epoch", "value"),
               Input("scenario-duration", "value"), Input("scenario-step", "value"),
               State("add-type", "value"), State("selected-store", "data"),
+              State("range-from", "value"), State("range-to", "value"), State("range-step", "value"),
               State({"type": "prop", "field": ALL}, "value"), State({"type": "prop", "field": ALL}, "id"),
               State("scenario-store", "data"),
               prevent_initial_call=True)
-def edit_scenario(tree_clicks, add_clicks, remove_clicks, apply_clicks, upload_contents,
-                  name, epoch, duration, step, add_type, selected, prop_values, prop_ids, scenario_data):
+def edit_scenario(tree_clicks, add_clicks, add_range_clicks, remove_clicks, apply_clicks, upload_contents,
+                  name, epoch, duration, step, add_type, selected, range_from, range_to, range_step,
+                  prop_values, prop_ids, scenario_data):
     trigger = ctx.triggered_id
     scenario = Scenario.from_dict(scenario_data)
     settings_unchanged = (no_update, no_update, no_update, no_update)
@@ -325,6 +415,16 @@ def edit_scenario(tree_clicks, add_clicks, remove_clicks, apply_clicks, upload_c
                 parent = scenario.add(GroundStation(name="Station"))
             new = scenario.add(OpticalSensor(name="Sensor", station=parent.name))
         return scenario.to_dict(), new.name, *settings_unchanged
+
+    if trigger == "add-range-button":
+        first = int(np.clip(range_from or 0, 0, len(FAMILY) - 1))
+        last = int(np.clip(range_to if range_to is not None else len(FAMILY) - 1, 0, len(FAMILY) - 1))
+        stride = max(1, int(range_step or 1))
+        new = None
+        for index in range(first, last + 1, stride):
+            new = scenario.add(Spacecraft(name=f"Halo #{index}", source="family", family_index=index,
+                                          propagation="periodic"))
+        return scenario.to_dict(), (new.name if new else no_update), *settings_unchanged
 
     if trigger == "remove-button":
         if selected:
