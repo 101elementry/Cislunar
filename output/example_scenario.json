@@ -1,0 +1,74 @@
+{
+  "name": "NRHO from Sydney",
+  "epoch_utc": "2026-01-01T00:00:00",
+  "duration_days": 14.0,
+  "time_step_s": 60.0,
+  "spacecraft": [
+    {
+      "name": "Gateway-like NRHO",
+      "source": "family",
+      "initial_state": [
+        1.0221,
+        0.0,
+        -0.1821,
+        0.0,
+        -0.1018,
+        0.0
+      ],
+      "family_index": 49,
+      "propagation": "periodic",
+      "diameter_m": 6.0,
+      "albedo": 0.25
+    },
+    {
+      "name": "Free-flyer",
+      "source": "state",
+      "initial_state": [
+        1.0221,
+        0.0,
+        -0.1821,
+        0.0,
+        -0.1018,
+        0.0
+      ],
+      "family_index": 49,
+      "propagation": "integrate",
+      "diameter_m": 4.0,
+      "albedo": 0.2
+    },
+    {
+      "name": "Free-flyer 2",
+      "source": "state",
+      "initial_state": [
+        1.0221,
+        0.0,
+        -0.1821,
+        0.0,
+        -0.1018,
+        0.0
+      ],
+      "family_index": 49,
+      "propagation": "integrate",
+      "diameter_m": 4.0,
+      "albedo": 0.2
+    }
+  ],
+  "ground_stations": [
+    {
+      "name": "Sydney",
+      "latitude_deg": -33.87,
+      "longitude_deg": 151.21,
+      "altitude_km": 0.05,
+      "min_elevation_deg": 15.0,
+      "max_sun_elevation_deg": -12.0
+    }
+  ],
+  "sensors": [
+    {
+      "name": "Sydney 0.5 m telescope",
+      "station": "Sydney",
+      "limiting_magnitude": 18.5,
+      "lunar_exclusion_deg": 20.0
+    }
+  ]
+}
