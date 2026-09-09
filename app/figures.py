@@ -41,7 +41,7 @@ BODY_SHADING = {"moon": [[0.0, "#3a3a38"], [0.55, "#8f8d86"], [1.0, "#e8e4d8"]],
                 "earth": [[0.0, "#0c2a5e"], [0.6, "#2d6fd0"], [1.0, "#9fd0ff"]]}
 
 
-def sphere_surface(centre, radius, name, body, resolution=40):
+def sphere_surface(centre, radius, name, body, resolution=28):
     """
     A Plotly surface for a sphere, shaded as if lit from the +x side of
     the rotating frame, roughly where the Sun sits at new Moon; the
@@ -106,7 +106,7 @@ def camera_for(focus_point, lower, upper, ratio, zoom=1.3):
 
 def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, station_positions=None,
                       marker_states=None, manifolds=None, view="moon", frame_label="rotating frame",
-                      focus_point=None, focus_key="none", zoom=1.3, trail_samples=0):
+                      focus_point=None, focus_key="none", zoom=1.3, trail_samples=0, clock=None):
     """
     3D view of trajectories with the Earth and Moon drawn to scale.
 
@@ -132,6 +132,12 @@ def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, st
     zoom              : eye distance as a fraction of the box when focusing
     trail_samples     : if > 0, draw a brighter fading tail of this many
                         samples behind each current-time marker
+    clock             : optional {"epoch_utc", "time_step_s", "n_samples"}
+                        stored in the layout so the browser-side playback
+                        (assets/playback.js) can run the clock itself
+
+    Every trace carries a `meta` role (path, trail, halo, marker, body,
+    bodypath) so the playback script can find and move the right ones.
     """
     figure = go.Figure()
 
@@ -159,18 +165,23 @@ def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, st
         colors[name] = SPACECRAFT_COLORS[k % len(SPACECRAFT_COLORS)]
         shown = subsample(states)
         full_width = 2.0 if trail_samples > 0 else 3.5
+        stride = max(1, int(np.ceil(len(states) / MAX_PLOT_POINTS)))
         figure.add_trace(go.Scatter3d(x=shown[:, 0], y=shown[:, 1], z=shown[:, 2],
                                       mode="lines", name=name, line=dict(width=full_width, color=colors[name]),
                                       opacity=0.55 if trail_samples > 0 else 1.0,
+                                      meta={"role": "path", "spacecraft": name, "stride": stride},
                                       hovertemplate=f"{name}<br>x %{{x:.4f}}<br>y %{{y:.4f}}<br>z %{{z:.4f}} LU<extra></extra>"))
-        if trail_samples > 0 and index > 1:
+        if trail_samples > 0:
             # A comet tail: the last trail_samples up to now, fading from
-            # transparent to the spacecraft colour.
-            start = max(0, index - trail_samples)
-            tail = states[start:index + 1, :3]
+            # transparent to the spacecraft colour.  Always the same number
+            # of points (the start is clamped) so the playback script can
+            # replace the coordinates without touching the fade.
+            picks = np.clip(np.arange(index - trail_samples, index + 1), 0, len(states) - 1)
+            tail = states[picks, :3]
             fade = np.linspace(0.0, 1.0, len(tail))
             figure.add_trace(go.Scatter3d(x=tail[:, 0], y=tail[:, 1], z=tail[:, 2], mode="lines",
                                           showlegend=False, hoverinfo="skip",
+                                          meta={"role": "trail", "spacecraft": name, "samples": int(trail_samples)},
                                           line=dict(width=6, color=fade,
                                                     colorscale=[[0.0, "rgba(0,0,0,0)"], [1.0, colors[name]]],
                                                     cmin=0.0, cmax=1.0)))
@@ -182,8 +193,12 @@ def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, st
             shown = subsample(positions)
             figure.add_trace(go.Scatter3d(x=shown[:, 0], y=shown[:, 1], z=shown[:, 2], mode="lines",
                                           name=f"{name.capitalize()} path", showlegend=False,
+                                          meta={"role": "bodypath", "body": name,
+                                                "stride": max(1, int(np.ceil(len(positions) / MAX_PLOT_POINTS)))},
                                           line=dict(width=1, color=body_paths[name], dash="dot"), hoverinfo="skip"))
-        figure.add_trace(sphere_surface(body_now(name), body_radii[name], name.capitalize(), name))
+        sphere = sphere_surface(body_now(name), body_radii[name], name.capitalize(), name)
+        sphere.meta = {"role": "body", "body": name}
+        figure.add_trace(sphere)
 
     if points:
         for name, position in points.items():
@@ -205,9 +220,11 @@ def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, st
             # symbol that clashes with the trajectory colour.
             figure.add_trace(go.Scatter3d(x=[state[0]], y=[state[1]], z=[state[2]], mode="markers",
                                           showlegend=False, hoverinfo="skip",
+                                          meta={"role": "halo", "spacecraft": name},
                                           marker=dict(size=14, color=color, opacity=0.25)))
             figure.add_trace(go.Scatter3d(x=[state[0]], y=[state[1]], z=[state[2]], mode="markers",
                                           name=f"{name} (now)",
+                                          meta={"role": "marker", "spacecraft": name},
                                           marker=dict(size=6, color="#ffffff", line=dict(color=color, width=2))))
 
     # Equal scale on all three axes.  Plotly's default stretches each axis
@@ -247,7 +264,8 @@ def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, st
                     font=dict(size=11, color=TEXT_SECONDARY)),
         hoverlabel=dict(bgcolor="#171d2a", bordercolor=GRID, font=dict(family="IBM Plex Mono, Menlo, monospace",
                                                                          color=TEXT, size=11)),
-        uirevision=f"{view}-{frame_label}-{focus_key}")
+        uirevision=f"{view}-{frame_label}-{focus_key}",
+        meta=dict(clock or {}, index=int(index)))
     return figure
 
 

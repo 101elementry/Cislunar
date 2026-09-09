@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime, timedelta
 
 import numpy as np
-from dash import Dash, dcc, html, dash_table, Input, Output, State, ALL, ctx, no_update
+from dash import Dash, dcc, html, dash_table, Input, Output, State, ALL, ClientsideFunction, ctx, no_update
 
 from engine import crtbp, frames, propagation
 from model import orbits, runner, sweep
@@ -87,7 +87,7 @@ dash_app.layout = html.Div([
     dcc.Store(id="results-store", data=None),
     dcc.Store(id="layout-store", data={"left": True, "right": True, "bottom": True}),
     dcc.Store(id="split-store", data=False),
-    dcc.Interval(id="play-interval", interval=300, disabled=True),
+    dcc.Store(id="play-store", data=False),
     dcc.Download(id="download"),
 
     # ---- top bar ----
@@ -266,10 +266,12 @@ dash_app.layout = html.Div([
             html.Div([
                 html.Span("Time", className="panel-title"),
                 html.Button("Play", id="play-button", className="small play", n_clicks=0),
-                dcc.Dropdown(id="play-speed", className="dash-dropdown speed", clearable=False, value=5,
-                             options=[{"label": "1 step / tick", "value": 1}, {"label": "5 steps / tick", "value": 5},
-                                      {"label": "20 steps / tick", "value": 20}, {"label": "60 steps / tick", "value": 60},
-                                      {"label": "240 steps / tick", "value": 240}]),
+                dcc.Dropdown(id="play-speed", className="dash-dropdown speed", clearable=False, value=6.0,
+                             options=[{"label": "1 hour / second", "value": 1.0},
+                                      {"label": "6 hours / second", "value": 6.0},
+                                      {"label": "1 day / second", "value": 24.0},
+                                      {"label": "3 days / second", "value": 72.0},
+                                      {"label": "1 week / second", "value": 168.0}]),
                 html.Div(dcc.Slider(id="time-slider", min=0, max=1, step=1, value=0, marks={},
                                     tooltip={"placement": "top", "always_visible": False}),
                          className="slider"),
@@ -318,22 +320,23 @@ def apply_panel_layout(layout):
 # Playback and split view
 # --------------------------------------------------------------------------
 
-@dash_app.callback(Output("play-interval", "disabled"), Output("play-button", "children"),
+@dash_app.callback(Output("play-store", "data"), Output("play-button", "children"),
               Output("play-button", "className"),
-              Input("play-button", "n_clicks"), State("play-interval", "disabled"), prevent_initial_call=True)
-def toggle_play(n_clicks, disabled):
-    playing = disabled
-    return (not playing), ("Pause" if playing else "Play"), ("small play active" if playing else "small play")
+              Input("play-button", "n_clicks"), State("play-store", "data"), prevent_initial_call=True)
+def toggle_play(n_clicks, playing):
+    playing = not playing
+    return playing, ("Pause" if playing else "Play"), ("small play active" if playing else "small play")
 
 
-@dash_app.callback(Output("time-slider", "value", allow_duplicate=True),
-              Input("play-interval", "n_intervals"), State("time-slider", "value"), State("time-slider", "max"),
-              State("play-speed", "value"), prevent_initial_call=True)
-def advance_time(n_intervals, value, maximum, speed):
-    """Move the clock forward by `speed` samples per tick, wrapping at the end."""
-    if maximum is None or maximum <= 0:
-        return no_update
-    return int((value or 0) + int(speed or 1)) % (int(maximum) + 1)
+# The clock itself runs in the browser (assets/playback.js): it slides the
+# markers, trails and moving bodies along the drawn paths at the display's
+# frame rate, with no server round trip.  When playback stops the slider
+# is set to the reached sample, and the server redraws that instant.
+dash_app.clientside_callback(
+    ClientsideFunction(namespace="playback", function_name="control"),
+    Output("time-slider", "value", allow_duplicate=True),
+    Input("play-store", "data"), Input("play-speed", "value"),
+    State("time-slider", "value"), prevent_initial_call=True)
 
 
 @dash_app.callback(Output("split-store", "data"), Output("split-button", "className"),
@@ -999,17 +1002,19 @@ def focus_point_for(focus, trajectories, bodies, points, index):
     return None
 
 
-def scene_figure(results, frame, view, focus, index):
+def scene_figure(scenario, results, frame, view, focus, index):
     """The 3D figure of one frame at one time index."""
     trajectories, manifold_branches, stations, bodies, points = displayed_frame(results, frame)
     markers = {name: states[index] for name, states in trajectories.items()}
     trail = max(2, len(results["times_s"]) // 12)
+    clock = {"epoch_utc": scenario.epoch_utc, "time_step_s": float(scenario.time_step_s),
+             "n_samples": int(len(results["times_s"]))}
     return figures.trajectory_figure(trajectories, bodies, BODY_RADII, index=index, points=points,
                                      station_positions=stations, marker_states=markers,
                                      manifolds=manifold_branches, view=view,
                                      frame_label=FRAME_LABELS[frame],
                                      focus_point=focus_point_for(focus, trajectories, bodies, points, index),
-                                     focus_key=focus, trail_samples=trail)
+                                     focus_key=focus, trail_samples=trail, clock=clock)
 
 
 @dash_app.callback(Output("view-3d", "figure"), Output("view-3d-b", "figure"), Output("time-series", "figure"),
@@ -1031,8 +1036,8 @@ def update_views(run_id, pair, slider_index, view, frame, frame_b, split, focus)
     index = int(np.clip(slider_index or 0, 0, len(results["times_s"]) - 1))
     current_time_s = results["times_s"][index]
 
-    figure_3d = scene_figure(results, frame, view, focus, index)
-    figure_3d_b = scene_figure(results, frame_b, view, focus, index) if split else no_update
+    figure_3d = scene_figure(scenario, results, frame, view, focus, index)
+    figure_3d_b = scene_figure(scenario, results, frame_b, view, focus, index) if split else no_update
 
     if pair:
         key = pair_key(pair)
