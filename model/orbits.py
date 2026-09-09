@@ -115,11 +115,20 @@ def describe(spacecraft, families, epoch_jd):
     lines.append(f"distance to the Moon {crtbp.length_to_km(crtbp.distance_to_moon(state0)):,.0f} km")
 
     centre = spacecraft.centre if spacecraft.source == "elements" else "moon"
-    elements = kepler.state_to_keplerian(state0, centre=centre, plane_rotation=plane_rotation_for(spacecraft, epoch_jd))
+    plane_rotation = plane_rotation_for(spacecraft, epoch_jd)
+    elements = kepler.state_to_keplerian(state0, centre=centre, plane_rotation=plane_rotation)
     if elements["specific_energy"] < 0.0:
         lines.append(f"osculating about the {centre}: a = {elements['a_km']:,.0f} km, e = {elements['e']:.4f}, "
                      f"i = {elements['i_deg']:.2f} deg, periapsis {elements['periapsis_km']:,.0f} km, "
                      f"apoapsis {elements['apoapsis_km']:,.0f} km, two-body period {elements['period_hours']:.2f} h")
+        if plane_rotation is not None:
+            # The scene's xy-plane is the Moon's orbit plane, so say how
+            # the orbit sits relative to it: the equator is tilted 23.44
+            # degrees, and an equatorial inclination can add to or cancel
+            # that depending on where the node lies.
+            in_scene = kepler.state_to_keplerian(state0, centre=centre)
+            lines.append(f"relative to the Moon's orbit plane (the scene): i = {in_scene['i_deg']:.2f} deg, "
+                         f"node at {in_scene['raan_deg']:.1f} deg from the Earth-Moon line")
     else:
         lines.append(f"not bound to the {centre} in the two-body sense (energy > 0)")
     return lines

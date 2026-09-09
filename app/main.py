@@ -776,7 +776,8 @@ def edit_scenario(tree_clicks, add_clicks, add_range_clicks, remove_clicks, appl
         if obj is None:
             return (no_update, no_update) + settings_unchanged + (no_status,)
         apply_form_values(scenario, obj, prop_values, prop_ids)
-        return scenario.to_dict(), obj.name, *settings_unchanged, status_message("Applied.")
+        return scenario.to_dict(), obj.name, *settings_unchanged, status_message(
+            "Applied. Press Run analysis to update the scene and the windows.")
 
     if trigger == "load-upload":
         _, _, encoded = upload_contents.partition(",")
