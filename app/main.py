@@ -23,10 +23,11 @@ from datetime import datetime, timedelta
 import numpy as np
 from dash import Dash, dcc, html, dash_table, Input, Output, State, ALL, ctx, no_update
 
-from engine import crtbp, propagation
-from model import runner
-from model.family import load_family
-from model.scenario import Scenario, Spacecraft, GroundStation, OpticalSensor, example_scenario
+from engine import crtbp, frames, propagation
+from model import orbits, runner
+from model.family import load_families, nearest_member, member_label, DEFAULT_FAMILY_NAME
+from model.scenario import (Scenario, Spacecraft, GroundStation, OpticalSensor, example_scenario,
+                            ELEMENT_PRESETS)
 from app import figures
 
 dash_app = Dash(__name__, title="Cislunar mission tool", suppress_callback_exceptions=True)
@@ -35,10 +36,10 @@ dash_app = Dash(__name__, title="Cislunar mission tool", suppress_callback_excep
 # locally for one user, so a module-level dictionary is enough; the
 # browser only holds the run id.
 RESULTS = {}
-FAMILY = load_family()
-FAMILY_LABELS = [f"{index}: T = {crtbp.time_to_days(orbit['period']):.2f} d, "
-                 f"perilune {crtbp.length_to_km(orbit['perilune_radius']):,.0f} km, C = {orbit['jacobi']:.4f}"
-                 for index, orbit in enumerate(FAMILY)]
+FAMILIES = load_families()
+FAMILY_NAMES = list(FAMILIES.keys())
+FAMILY_LABELS = {name: [member_label(index, orbit) for index, orbit in enumerate(family)]
+                 for name, family in FAMILIES.items()}
 FIXED_POINTS = propagation.fixed_points()
 
 TREE_GLYPH = {"spacecraft": ("◆", "glyph-spacecraft"),
@@ -121,25 +122,33 @@ dash_app.layout = html.Div([
                 html.Button("Remove", id="remove-button", className="small danger", n_clicks=0),
             ], className="add-row"),
             html.Details([
-                html.Summary("Add several halo family members"),
+                html.Summary("Add several family members"),
+                html.Div([html.Label("Family"),
+                          dcc.Dropdown(id="range-family", className="dash-dropdown", clearable=False,
+                                       value=DEFAULT_FAMILY_NAME,
+                                       options=[{"label": f"{name} ({len(FAMILIES[name])} members)", "value": name}
+                                                for name in FAMILY_NAMES])], className="field"),
                 html.Div([
-                    html.Div([html.Label("From"), dcc.Input(id="range-from", type="number", value=0, min=0,
-                                                            max=len(FAMILY) - 1, step=1)], className="field"),
-                    html.Div([html.Label("To"), dcc.Input(id="range-to", type="number", value=len(FAMILY) - 1, min=0,
-                                                          max=len(FAMILY) - 1, step=1)], className="field"),
+                    html.Div([html.Label("From"), dcc.Input(id="range-from", type="number", value=0, min=0, step=1)],
+                             className="field"),
+                    html.Div([html.Label("To"), dcc.Input(id="range-to", type="number", value=None, min=0, step=1)],
+                             className="field"),
                     html.Div([html.Label("Every"), dcc.Input(id="range-step", type="number", value=10, min=1, step=1)],
                              className="field"),
                 ], className="form-row three"),
                 html.Button("Add members", id="add-range-button", className="small", n_clicks=0),
-                html.Span(f"Family has {len(FAMILY)} members: index 0 is the largest halo, "
-                          f"{len(FAMILY) - 1} has the lowest perilune.", className="hint"),
+                html.Span("Leave To empty for the whole family. In the halo families index 0 is the largest "
+                          "orbit and the last index has the lowest perilune.", className="hint"),
             ], className="details"),
             html.Details([
                 html.Summary("How to set up a simulation"),
                 html.Ol([
                     html.Li("Set the epoch, duration and step at the top."),
-                    html.Li("Add spacecraft: a halo family member (periodic, station-kept) or your own "
-                            "rotating-frame initial state (integrated)."),
+                    html.Li("Add spacecraft: an orbit family member (periodic, station-kept), your own "
+                            "rotating-frame initial state, or two-body elements about the Moon or Earth "
+                            "(lunar relay, GEO, LEO)."),
+                    html.Li("A typed state can be corrected to a periodic orbit from its form; a family "
+                            "member can be picked by perilune radius or period."),
                     html.Li("Add a ground station and, optionally, an optical sensor on it."),
                     html.Li("Select an object, edit its fields, press Apply."),
                     html.Li("Press Run analysis. Pick an observer-spacecraft pair on the right."),
@@ -150,6 +159,7 @@ dash_app.layout = html.Div([
             html.Div(id="form", className="form"),
             html.Div([html.Button("Apply", id="apply-button", className="primary small", n_clicks=0, hidden=True)],
                      className="form-actions"),
+            html.Div(id="form-status", className="form-status"),
         ], panel_id="left-panel"),
         panel("Rotating frame", dcc.Graph(id="view-3d", style={"height": "100%"}, responsive=True,
                                           config={"displaylogo": False}),
@@ -283,7 +293,12 @@ def render_tree(scenario_data, selected):
     scenario = Scenario.from_dict(scenario_data)
     items = [html.Div("Spacecraft", className="tree-group")]
     for spacecraft in scenario.spacecraft:
-        meta = f"family #{spacecraft.family_index}" if spacecraft.source == "family" else "state"
+        if spacecraft.source == "family":
+            meta = f"#{spacecraft.family_index}"
+        elif spacecraft.source == "elements":
+            meta = f"{spacecraft.centre} elements"
+        else:
+            meta = "periodic" if spacecraft.period_tu > 0.0 else "state"
         items.append(tree_item(spacecraft, selected, meta))
     if len(scenario.spacecraft) == 0:
         items.append(html.Div("none", className="empty"))
@@ -317,6 +332,125 @@ def prop_dropdown(name, value, options):
                         clearable=False, className="dash-dropdown")
 
 
+def pick_input(name, value, **kwargs):
+    """Inputs that belong to a form action rather than to a property."""
+    return dcc.Input(id={"type": "pick", "field": name}, value=value, **kwargs)
+
+
+def action_button(label, name, primary=False):
+    class_name = "primary small" if primary else "small"
+    return html.Button(label, id={"type": "form-action", "name": name}, className=class_name, n_clicks=0)
+
+
+def spacecraft_form(obj, scenario):
+    """The property form of a spacecraft: one block per orbit source."""
+    family_name = obj.family_name if obj.family_name in FAMILIES else DEFAULT_FAMILY_NAME
+    fields = [field("Defined by", prop_dropdown("source", obj.source,
+                    [{"label": "Rotating-frame initial state", "value": "state"},
+                     {"label": "Orbit family member", "value": "family"},
+                     {"label": "Two-body elements (Moon or Earth)", "value": "elements"}]))]
+
+    # ---- family ----
+    family_block = [
+        field("Family", prop_dropdown("family_name", family_name,
+                                      [{"label": name, "value": name} for name in FAMILY_NAMES])),
+        field("Member", prop_dropdown("family_index", int(np.clip(obj.family_index, 0, len(FAMILIES[family_name]) - 1)),
+                                      [{"label": label, "value": index}
+                                       for index, label in enumerate(FAMILY_LABELS[family_name])])),
+        html.Div([field("Perilune [km]", pick_input("perilune_km", None, type="number", min=0)),
+                  field("Period [days]", pick_input("period_days", None, type="number", min=0))],
+                 className="form-row"),
+        html.Div([action_button("Pick nearest member", "nearest")], className="form-actions"),
+        html.Span("Fill one or both and press the button: the member closest to those values is "
+                  "selected.", className="hint"),
+    ]
+    fields.append(html.Div(family_block, className="form-block", hidden=obj.source != "family",
+                           id={"type": "source-block", "source": "family"}))
+
+    # ---- state ----
+    state_block = [
+        field("Initial state  x, y, z, vx, vy, vz",
+              prop_input("initial_state", ", ".join(f"{v:.10g}" for v in obj.initial_state),
+                         type="text", className="mono"),
+              hint="rotating frame, LU and LU/TU"),
+        field("Known period [TU]", prop_input("period_tu", obj.period_tu, type="number", min=0),
+              hint="0 if the state is not a converged periodic orbit"),
+        html.Details([
+            html.Summary("Correct to a periodic orbit"),
+            html.P("A state on the xz-plane with velocity perpendicular to it (y = vx = vz = 0) is corrected "
+                   "with the symmetric halo or planar corrector, holding one component fixed. Any other state "
+                   "uses the general corrector and needs a period guess.", className="help-text"),
+            html.Div([field("Hold fixed", dcc.Dropdown(id={"type": "pick", "field": "fixed"}, value="auto",
+                                                       clearable=False, className="dash-dropdown",
+                                                       options=[{"label": "automatic", "value": "auto"},
+                                                                {"label": "x0", "value": "x0"},
+                                                                {"label": "z0", "value": "z0"},
+                                                                {"label": "vy0", "value": "vy0"}])),
+                      field("Period guess [days]", pick_input("period_guess_days", None, type="number", min=0))],
+                     className="form-row"),
+            html.Div([action_button("Correct to periodic", "correct", primary=True)], className="form-actions"),
+        ], className="details"),
+    ]
+    fields.append(html.Div(state_block, className="form-block", hidden=obj.source != "state",
+                           id={"type": "source-block", "source": "state"}))
+
+    # ---- elements ----
+    elements = obj.elements
+    element_block = [
+        field("Preset", dcc.Dropdown(id={"type": "pick", "field": "preset"}, value=None, placeholder="choose a preset",
+                                     className="dash-dropdown",
+                                     options=[{"label": name, "value": name} for name in ELEMENT_PRESETS])),
+        html.Div([action_button("Load preset", "preset")], className="form-actions"),
+        html.Div([field("Central body", prop_dropdown("centre", obj.centre,
+                                                      [{"label": "Moon", "value": "moon"},
+                                                       {"label": "Earth", "value": "earth"}])),
+                  field("Reference plane", prop_dropdown("reference_plane", obj.reference_plane,
+                                                         [{"label": "Moon orbit plane", "value": "moon orbit"},
+                                                          {"label": "Earth equator", "value": "earth equator"}]))],
+                 className="form-row"),
+        html.Div([field("a [km]", prop_input("element_a_km", elements["a_km"], type="number", min=0)),
+                  field("e", prop_input("element_e", elements["e"], type="number", min=0, max=0.999, step=0.0001)),
+                  field("i [deg]", prop_input("element_i_deg", elements["i_deg"], type="number"))],
+                 className="form-row three"),
+        html.Div([field("RAAN [deg]", prop_input("element_raan_deg", elements["raan_deg"], type="number")),
+                  field("Arg. periapsis [deg]", prop_input("element_argp_deg", elements["argp_deg"], type="number")),
+                  field("True anomaly [deg]", prop_input("element_true_anomaly_deg", elements["true_anomaly_deg"],
+                                                         type="number"))],
+                 className="form-row three"),
+        html.Span("Osculating elements at the epoch. Inclination and node are measured from the chosen "
+                  "reference plane; the Earth-equator option places the node against the equinox.",
+                  className="hint"),
+    ]
+    fields.append(html.Div(element_block, className="form-block", hidden=obj.source != "elements",
+                           id={"type": "source-block", "source": "elements"}))
+
+    # ---- common ----
+    fields.append(field("Propagation", prop_dropdown("propagation", obj.propagation,
+                        [{"label": "Integrate initial state", "value": "integrate"},
+                         {"label": "Repeat converged period (station-kept)", "value": "periodic"}]),
+                        hint="periodic needs a family member or a corrected state"))
+    fields.append(html.Div([field("Diameter [m]", prop_input("diameter_m", obj.diameter_m, type="number", min=0)),
+                            field("Albedo", prop_input("albedo", obj.albedo, type="number", min=0, max=1, step=0.01))],
+                           className="form-row"))
+    fields.append(html.Div([field("Manifolds", prop_dropdown("manifolds", obj.manifolds,
+                                                             [{"label": "none", "value": "none"},
+                                                              {"label": "unstable", "value": "unstable"},
+                                                              {"label": "stable", "value": "stable"},
+                                                              {"label": "both", "value": "both"}])),
+                            field("Branches", prop_input("manifold_branches", obj.manifold_branches, type="number",
+                                                         min=1, max=64, step=1)),
+                            field("Length [days]", prop_input("manifold_time_days", obj.manifold_time_days,
+                                                              type="number", min=0.1))],
+                           className="form-row three"))
+    fields.append(html.Span("Manifolds are drawn for periodic orbits only.", className="hint"))
+
+    # ---- description of the resulting orbit ----
+    epoch_jd = frames.julian_date(scenario.epoch_utc)
+    fields.append(html.Div([html.Div(line, className="describe-line")
+                            for line in orbits.describe(obj, FAMILIES, epoch_jd)], className="describe"))
+    return fields
+
+
 @dash_app.callback(Output("form", "children"), Output("apply-button", "hidden"),
               Input("selected-store", "data"), State("scenario-store", "data"))
 def render_form(selected, scenario_data):
@@ -330,22 +464,7 @@ def render_form(selected, scenario_data):
               field("Name", prop_input("name", obj.name, type="text"))]
 
     if isinstance(obj, Spacecraft):
-        fields.append(field("Defined by", prop_dropdown("source", obj.source,
-                            [{"label": "Initial state", "value": "state"},
-                             {"label": "Halo family member", "value": "family"}])))
-        fields.append(field("Family member", prop_dropdown("family_index", obj.family_index,
-                            [{"label": label, "value": index} for index, label in enumerate(FAMILY_LABELS)]),
-                            hint="from output/halo_family.npz"))
-        fields.append(field("Propagation", prop_dropdown("propagation", obj.propagation,
-                            [{"label": "Integrate initial state", "value": "integrate"},
-                             {"label": "Repeat converged period (station-kept)", "value": "periodic"}])))
-        fields.append(field("Initial state  x, y, z, vx, vy, vz",
-                            prop_input("initial_state", ", ".join(f"{v:.10g}" for v in obj.initial_state),
-                                       type="text", className="mono"),
-                            hint="rotating frame, LU and LU/TU; used when defined by initial state"))
-        fields.append(html.Div([field("Diameter [m]", prop_input("diameter_m", obj.diameter_m, type="number", min=0)),
-                                field("Albedo", prop_input("albedo", obj.albedo, type="number", min=0, max=1, step=0.01))],
-                               className="form-row"))
+        fields.extend(spacecraft_form(obj, scenario))
     elif isinstance(obj, GroundStation):
         fields.append(html.Div([field("Latitude [deg]", prop_input("latitude_deg", obj.latitude_deg, type="number")),
                                 field("Longitude [deg]", prop_input("longitude_deg", obj.longitude_deg, type="number"))],
@@ -368,37 +487,157 @@ def render_form(selected, scenario_data):
     return fields, False
 
 
+@dash_app.callback(Output({"type": "source-block", "source": ALL}, "hidden"),
+              Input({"type": "prop", "field": "source"}, "value"),
+              State({"type": "source-block", "source": ALL}, "id"), prevent_initial_call=True)
+def show_source_block(source, block_ids):
+    """Only the block for the chosen orbit source is visible."""
+    return [block_id["source"] != source for block_id in block_ids]
+
+
+@dash_app.callback(Output({"type": "prop", "field": "family_index"}, "options"),
+              Output({"type": "prop", "field": "family_index"}, "value"),
+              Input({"type": "prop", "field": "family_name"}, "value"),
+              State({"type": "prop", "field": "family_index"}, "value"), prevent_initial_call=True)
+def family_members_for(family_name, current_index):
+    """The member list follows the chosen family."""
+    if family_name not in FAMILIES:
+        return no_update, no_update
+    labels = FAMILY_LABELS[family_name]
+    index = int(np.clip(current_index or 0, 0, len(labels) - 1))
+    return [{"label": label, "value": k} for k, label in enumerate(labels)], index
+
+
 # --------------------------------------------------------------------------
 # Scenario edits: selection, add, remove, apply, settings, load
 # --------------------------------------------------------------------------
 
+def apply_form_values(scenario, obj, prop_values, prop_ids):
+    """
+    Write the property form back onto the object.  Element fields are
+    gathered into the elements dictionary; the initial state text is
+    parsed; numbers are coerced to the field's type.  Returns the
+    object's final name (renaming is done here too).
+    """
+    values = {prop_id["field"]: value for prop_id, value in zip(prop_ids, prop_values)}
+    new_name = values.pop("name", obj.name) or obj.name
+    for key, value in values.items():
+        if key.startswith("element_"):
+            if value is not None:
+                obj.elements[key[len("element_"):]] = float(value)
+            continue
+        if key == "initial_state":
+            try:
+                value = parse_state_text(value)
+            except ValueError:
+                continue
+        elif key in ("family_index", "manifold_branches"):
+            if value is None:
+                continue
+            value = int(value)
+        elif isinstance(getattr(obj, key), float):
+            if value is None:
+                continue
+            value = float(value)
+        setattr(obj, key, value)
+    if new_name != obj.name:
+        new_name = scenario.unique_name(new_name)
+        scenario.rename(obj.name, new_name)
+    return obj.name
+
+
+def status_message(text_value, kind="ok"):
+    return html.Div(text_value, className=f"status-line {kind}")
+
+
 @dash_app.callback(Output("scenario-store", "data"), Output("selected-store", "data"),
               Output("scenario-name", "value"), Output("scenario-epoch", "value"),
               Output("scenario-duration", "value"), Output("scenario-step", "value"),
+              Output("form-status", "children"),
               Input({"type": "tree-item", "name": ALL}, "n_clicks"),
               Input("add-button", "n_clicks"), Input("add-range-button", "n_clicks"),
               Input("remove-button", "n_clicks"),
               Input("apply-button", "n_clicks"), Input("load-upload", "contents"),
+              Input({"type": "form-action", "name": ALL}, "n_clicks"),
               Input("scenario-name", "value"), Input("scenario-epoch", "value"),
               Input("scenario-duration", "value"), Input("scenario-step", "value"),
               State("add-type", "value"), State("selected-store", "data"),
+              State("range-family", "value"),
               State("range-from", "value"), State("range-to", "value"), State("range-step", "value"),
               State({"type": "prop", "field": ALL}, "value"), State({"type": "prop", "field": ALL}, "id"),
+              State({"type": "pick", "field": ALL}, "value"), State({"type": "pick", "field": ALL}, "id"),
               State("scenario-store", "data"),
               prevent_initial_call=True)
 def edit_scenario(tree_clicks, add_clicks, add_range_clicks, remove_clicks, apply_clicks, upload_contents,
-                  name, epoch, duration, step, add_type, selected, range_from, range_to, range_step,
-                  prop_values, prop_ids, scenario_data):
+                  action_clicks, name, epoch, duration, step, add_type, selected, range_family,
+                  range_from, range_to, range_step, prop_values, prop_ids, pick_values, pick_ids, scenario_data):
     trigger = ctx.triggered_id
     scenario = Scenario.from_dict(scenario_data)
     settings_unchanged = (no_update, no_update, no_update, no_update)
+    no_status = no_update
 
     if isinstance(trigger, dict) and trigger.get("type") == "tree-item":
         # A click on a tree row selects it; ignore the spurious trigger that
         # fires when rows are re-rendered with n_clicks = 0.
         if not any(clicks for clicks in tree_clicks):
-            return (no_update, no_update) + settings_unchanged
-        return no_update, trigger["name"], *settings_unchanged
+            return (no_update, no_update) + settings_unchanged + (no_status,)
+        return no_update, trigger["name"], *settings_unchanged, ""
+
+    if isinstance(trigger, dict) and trigger.get("type") == "form-action":
+        if not any(clicks for clicks in action_clicks):
+            return (no_update, no_update) + settings_unchanged + (no_status,)
+        obj = scenario.find(selected)
+        if not isinstance(obj, Spacecraft):
+            return (no_update, no_update) + settings_unchanged + (no_status,)
+        apply_form_values(scenario, obj, prop_values, prop_ids)
+        picks = {pick_id["field"]: value for pick_id, value in zip(pick_ids, pick_values)}
+        action = trigger["name"]
+
+        if action == "nearest":
+            perilune_km = picks.get("perilune_km")
+            period_days = picks.get("period_days")
+            if perilune_km is None and period_days is None:
+                return (no_update, no_update) + settings_unchanged + (
+                    status_message("Enter a perilune radius, a period, or both.", "warn"),)
+            family = FAMILIES[obj.family_name]
+            obj.family_index = nearest_member(family, perilune_km, period_days)
+            chosen = family[obj.family_index]
+            message = (f"Member {obj.family_index}: period {crtbp.time_to_days(chosen['period']):.3f} d, "
+                       f"perilune {crtbp.length_to_km(chosen['perilune_radius']):,.0f} km, "
+                       f"apolune {crtbp.length_to_km(chosen['apolune_radius']):,.0f} km, "
+                       f"stability index {chosen['stability_index']:.2f}.")
+            return scenario.to_dict(), obj.name, *settings_unchanged, status_message(message)
+
+        if action == "preset":
+            preset = picks.get("preset")
+            if preset not in ELEMENT_PRESETS:
+                return (no_update, no_update) + settings_unchanged + (
+                    status_message("Choose a preset first.", "warn"),)
+            obj.centre, obj.reference_plane, elements = ELEMENT_PRESETS[preset]
+            obj.elements = dict(elements)
+            obj.source = "elements"
+            obj.propagation = "integrate"
+            return scenario.to_dict(), obj.name, *settings_unchanged, status_message(f"Loaded {preset}.")
+
+        if action == "correct":
+            fixed = picks.get("fixed")
+            fixed = None if fixed in (None, "auto") else fixed
+            period_guess = picks.get("period_guess_days")
+            epoch_jd = frames.julian_date(scenario.epoch_utc)
+            try:
+                info = orbits.correct_to_periodic(obj, FAMILIES, epoch_jd, fixed=fixed,
+                                                  period_guess_days=period_guess)
+            except (ValueError, RuntimeError, np.linalg.LinAlgError) as error:
+                return (no_update, no_update) + settings_unchanged + (
+                    status_message(f"Correction failed: {error}", "error"),)
+            message = (f"Converged with the {info['corrector']} corrector in {info['iterations']} iterations "
+                       f"(residual {info['residual']:.1e}): period {info['period_days']:.4f} d, "
+                       f"C = {info['jacobi']:.5f}, perilune {info['perilune_km']:,.0f} km, "
+                       f"apolune {info['apolune_km']:,.0f} km, stability index {info['stability_index']:.2f}. "
+                       f"Propagation set to periodic.")
+            return scenario.to_dict(), obj.name, *settings_unchanged, status_message(message)
+
+        return (no_update, no_update) + settings_unchanged + (no_status,)
 
     if trigger == "add-button":
         if add_type == "spacecraft":
@@ -414,52 +653,38 @@ def edit_scenario(tree_clicks, add_clicks, add_range_clicks, remove_clicks, appl
             if parent is None:
                 parent = scenario.add(GroundStation(name="Station"))
             new = scenario.add(OpticalSensor(name="Sensor", station=parent.name))
-        return scenario.to_dict(), new.name, *settings_unchanged
+        return scenario.to_dict(), new.name, *settings_unchanged, ""
 
     if trigger == "add-range-button":
-        first = int(np.clip(range_from or 0, 0, len(FAMILY) - 1))
-        last = int(np.clip(range_to if range_to is not None else len(FAMILY) - 1, 0, len(FAMILY) - 1))
+        family_name = range_family if range_family in FAMILIES else DEFAULT_FAMILY_NAME
+        family = FAMILIES[family_name]
+        first = int(np.clip(range_from or 0, 0, len(family) - 1))
+        last = int(np.clip(range_to if range_to is not None else len(family) - 1, 0, len(family) - 1))
         stride = max(1, int(range_step or 1))
         new = None
+        short = family_name.replace(" halo", "").replace(" ", "-")
         for index in range(first, last + 1, stride):
-            new = scenario.add(Spacecraft(name=f"Halo #{index}", source="family", family_index=index,
-                                          propagation="periodic"))
-        return scenario.to_dict(), (new.name if new else no_update), *settings_unchanged
+            new = scenario.add(Spacecraft(name=f"{short} #{index}", source="family", family_name=family_name,
+                                          family_index=index, propagation="periodic"))
+        return scenario.to_dict(), (new.name if new else no_update), *settings_unchanged, ""
 
     if trigger == "remove-button":
         if selected:
             scenario.remove(selected)
-        return scenario.to_dict(), None, *settings_unchanged
+        return scenario.to_dict(), None, *settings_unchanged, ""
 
     if trigger == "apply-button":
         obj = scenario.find(selected)
         if obj is None:
-            return (no_update, no_update) + settings_unchanged
-        values = {prop_id["field"]: value for prop_id, value in zip(prop_ids, prop_values)}
-        new_name = values.pop("name", obj.name) or obj.name
-        for key, value in values.items():
-            if key == "initial_state":
-                try:
-                    value = parse_state_text(value)
-                except ValueError:
-                    continue
-            elif key in ("family_index",):
-                value = int(value)
-            elif isinstance(getattr(obj, key), float):
-                if value is None:
-                    continue
-                value = float(value)
-            setattr(obj, key, value)
-        if new_name != obj.name:
-            new_name = scenario.unique_name(new_name)
-            scenario.rename(obj.name, new_name)
-        return scenario.to_dict(), obj.name, *settings_unchanged
+            return (no_update, no_update) + settings_unchanged + (no_status,)
+        apply_form_values(scenario, obj, prop_values, prop_ids)
+        return scenario.to_dict(), obj.name, *settings_unchanged, status_message("Applied.")
 
     if trigger == "load-upload":
         _, _, encoded = upload_contents.partition(",")
         loaded = Scenario.from_json(base64.b64decode(encoded).decode("utf-8"))
         return (loaded.to_dict(), None, loaded.name, loaded.epoch_utc,
-                loaded.duration_days, loaded.time_step_s)
+                loaded.duration_days, loaded.time_step_s, "")
 
     # Otherwise one of the scenario settings changed.
     if name:
@@ -474,7 +699,7 @@ def edit_scenario(tree_clicks, add_clicks, add_range_clicks, remove_clicks, appl
         scenario.duration_days = float(duration)
     if step:
         scenario.time_step_s = float(step)
-    return scenario.to_dict(), no_update, *settings_unchanged
+    return scenario.to_dict(), no_update, *settings_unchanged, no_status
 
 
 @dash_app.callback(Output("download", "data"), Input("save-button", "n_clicks"),
@@ -497,7 +722,7 @@ def save_scenario(n_clicks, scenario_data):
 def run_analysis(n_clicks, scenario_data, current_pair):
     scenario = Scenario.from_dict(scenario_data)
     started = time.perf_counter()
-    results = runner.run_scenario(scenario, FAMILY)
+    results = runner.run_scenario(scenario, FAMILIES)
     elapsed = time.perf_counter() - started
 
     run_id = str(uuid.uuid4())

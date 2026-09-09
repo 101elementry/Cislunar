@@ -12,25 +12,37 @@ scripts/ can use them identically.
 import numpy as np
 
 from engine import access, constraints, frames, geometry, propagation
+from model import orbits
+from model.family import DEFAULT_FAMILY_NAME
 from model.scenario import OpticalSensor
 
 
-def spacecraft_trajectory(spacecraft, times_nondim, family=None):
+def as_families(family_or_families):
+    """
+    Accept either the {name: family} dictionary or, for older callers,
+    the bare L2 southern halo family list, and return the dictionary.
+    """
+    if family_or_families is None:
+        return {}
+    if isinstance(family_or_families, dict):
+        return family_or_families
+    return {DEFAULT_FAMILY_NAME: family_or_families}
+
+
+def spacecraft_trajectory(spacecraft, times_nondim, families=None, epoch_jd=None):
     """
     (n, 6) rotating-frame states for one Spacecraft on the grid.
 
-    "family" spacecraft take their initial state (and, for periodic
-    propagation, their period) from the family list; "state" spacecraft
-    integrate their own initial state.
+    The initial state comes from model.orbits whatever the source.
+    Periodic propagation is used when asked for and the orbit has a
+    known period; otherwise the state is integrated.
     """
-    if spacecraft.source == "family":
-        if family is None:
-            raise ValueError(f"spacecraft {spacecraft.name!r} needs the halo family")
-        orbit = family[int(spacecraft.family_index)]
-        if spacecraft.propagation == "periodic":
-            return propagation.propagate_periodic(orbit["state0"], orbit["period"], times_nondim)
-        return propagation.propagate_state(orbit["state0"], times_nondim)
-    return propagation.propagate_state(spacecraft.initial_state, times_nondim)
+    families = as_families(families)
+    state0 = orbits.initial_state(spacecraft, families, epoch_jd)
+    period = orbits.period(spacecraft, families)
+    if spacecraft.propagation == "periodic" and period is not None:
+        return propagation.propagate_periodic(state0, period, times_nondim)
+    return propagation.propagate_state(state0, times_nondim)
 
 
 def constraints_for(station, sensor):
@@ -63,11 +75,14 @@ def observers(scenario):
     return result
 
 
-def run_scenario(scenario, family=None, extra_constraints=None):
+def run_scenario(scenario, families=None, extra_constraints=None):
     """
     Propagate every spacecraft and evaluate every observer-spacecraft
     pair.
 
+    families          : {name: list of orbit dictionaries} from
+                        model.family.load_families (a bare list is taken
+                        as the L2 southern halo family)
     extra_constraints : optional list of additional constraint functions
                         (see engine/constraints.py) applied to every pair.
 
@@ -84,13 +99,14 @@ def run_scenario(scenario, family=None, extra_constraints=None):
       windows      : {(observer, spacecraft): [(start_s, stop_s), ...]}
       duty_cycle   : {(observer, spacecraft): fraction}
     """
+    families = as_families(families)
     times_s = scenario.time_grid_seconds()
     times_nondim = scenario.time_grid_nondim()
     jd = frames.julian_dates_for_grid(scenario.epoch_utc, times_s)
 
     trajectories = {}
     for spacecraft in scenario.spacecraft:
-        trajectories[spacecraft.name] = spacecraft_trajectory(spacecraft, times_nondim, family)
+        trajectories[spacecraft.name] = spacecraft_trajectory(spacecraft, times_nondim, families, jd[0])
 
     stations = {}
     for station in scenario.ground_stations:

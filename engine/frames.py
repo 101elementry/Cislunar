@@ -171,3 +171,24 @@ def station_position_rotating(latitude_deg, longitude_deg, altitude_km, jd):
     up = np.column_stack([x_rot, y_rot, z_rot])
     position = crtbp.earth_position() + radius_nd * up
     return position, up
+
+
+# --------------------------------------------------------------------------
+# Reference frames for orbital elements
+# --------------------------------------------------------------------------
+
+def equatorial_to_rotating_matrix(jd):
+    """
+    3x3 rotation taking Earth-equatorial inertial coordinates (x toward
+    the equinox, z along the Earth's spin axis) into the CRTBP rotating
+    frame at one Julian date.  Same chain as station_position_rotating
+    without the Earth spin: tilt by the obliquity into the ecliptic, then
+    turn by the Moon's mean longitude.  Used to place orbital elements
+    quoted against the Earth's equator, such as a GEO orbit.
+    """
+    columns = []
+    for axis in (np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])):
+        x_ecl, y_ecl, z_ecl = rotate_about_x(axis[0], axis[1], axis[2], -OBLIQUITY_RAD)
+        x_rot, y_rot, z_rot = ecliptic_to_rotating(x_ecl, y_ecl, z_ecl, jd)
+        columns.append(np.array([x_rot, y_rot, z_rot]).reshape(3))
+    return np.column_stack(columns)

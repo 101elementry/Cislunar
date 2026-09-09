@@ -504,3 +504,172 @@ def build_l2_southern_family(mu=MU, seed_z_amplitude=0.03, verbose=True, **kwarg
         print(f"converged seed:  x0 = {first['state0'][0]:.6f}, z0 = {first['state0'][2]:.6f}, "
               f"vy0 = {first['state0'][4]:.6f}, T = {first['period']:.6f}, C = {first['jacobi']:.6f}")
     return continue_family(first, mu, verbose=verbose, **kwargs)
+
+
+# --------------------------------------------------------------------------
+# Correctors for the other symmetric cases and for a general periodic orbit
+# --------------------------------------------------------------------------
+
+PERPENDICULAR_TOLERANCE = 1e-9
+
+
+def is_perpendicular_crossing(state):
+    """
+    True if a state sits on the xz-plane with velocity perpendicular to
+    it: y = 0, vx = 0, vz = 0.  Such a state is what the symmetric
+    correctors need; a halo, Lyapunov or DRO catalogue state has this
+    form.
+    """
+    state = np.asarray(state, dtype=float)
+    return (abs(state[1]) < PERPENDICULAR_TOLERANCE
+            and abs(state[3]) < PERPENDICULAR_TOLERANCE
+            and abs(state[5]) < PERPENDICULAR_TOLERANCE)
+
+
+def is_planar(state):
+    """True if a state has z = 0 and vz = 0, so it stays in the xy-plane."""
+    state = np.asarray(state, dtype=float)
+    return abs(state[2]) < PERPENDICULAR_TOLERANCE and abs(state[5]) < PERPENDICULAR_TOLERANCE
+
+
+def correct_planar(x0, vy0, mu=MU, fixed="x0", tolerance=1e-11, max_iterations=30, verbose=False):
+    """
+    Newton-correct a perpendicular x-axis crossing into a planar periodic
+    orbit (Lyapunov orbit or distant retrograde orbit).
+
+    x0, vy0 : initial guess for the state [x0, 0, 0, 0, vy0, 0].
+    fixed   : "x0" adjusts vy0, "vy0" adjusts x0.
+
+    With z = vz = 0 the motion stays in the plane for ever (the z
+    acceleration is proportional to z), so the halo corrector's second
+    condition vz = 0 is satisfied identically and its 2x2 system is
+    singular.  Only one condition is left: vx = 0 at the next crossing,
+    which one free parameter can meet.  The crossing-time correction is
+    the same as in correct_halo.
+
+    Returns an orbit dictionary like correct_halo.
+    """
+    free_column = {"x0": 4, "vy0": 0}[fixed]
+    state0 = np.array([x0, 0.0, 0.0, 0.0, vy0, 0.0])
+
+    for iteration in range(max_iterations):
+        t_cross, state_cross, stm = integrate_to_next_crossing(state0, mu)
+
+        residual = state_cross[3]
+        if verbose:
+            print(f"  iter {iteration:2d}: |vx| at crossing = {abs(residual):.3e}")
+
+        if abs(residual) < tolerance:
+            return {"state0": state0.copy(),
+                    "period": 2.0 * t_cross,
+                    "half_period": t_cross,
+                    "jacobi": crtbp.jacobi_constant(state0, mu),
+                    "iterations": iteration,
+                    "residual": abs(residual)}
+
+        derivative_cross = crtbp.equations_of_motion(t_cross, state_cross, mu)
+        ax_cross = derivative_cross[3]
+        vy_cross = state_cross[4]
+
+        time_shift = -stm[1, free_column] / vy_cross
+        d_vx_d_free = stm[3, free_column] + ax_cross * time_shift
+
+        state0[free_column] = state0[free_column] - residual / d_vx_d_free
+
+    raise RuntimeError(f"planar corrector did not converge in {max_iterations} iterations "
+                       f"(residual {abs(residual):.3e})")
+
+
+def correct_periodic(state0, period, mu=MU, tolerance=1e-10, max_iterations=30, verbose=False):
+    """
+    Newton-correct any initial state and period guess into a periodic
+    orbit, without assuming a symmetry.
+
+    The unknowns are the six initial state components and the period,
+    seven in all; the conditions are that the state returns to itself
+    after one period, six in all.  The 6x7 Jacobian is
+        [ Phi(T) - I ,  f(x(T)) ]
+    where f is the equations of motion.  The system is under-determined
+    by one because any point along the orbit is an equally good initial
+    state, so the minimum-norm Newton step is used: it changes the
+    initial state as little as possible, which keeps it near the
+    supplied guess.
+
+    Returns an orbit dictionary like correct_halo (with half_period set
+    to period / 2 for compatibility, although no symmetry is implied).
+    Raises RuntimeError if Newton does not converge.
+    """
+    state0 = np.array(state0, dtype=float)
+    period = float(period)
+
+    for iteration in range(max_iterations):
+        sol = crtbp.propagate_with_stm(state0, period, mu)
+        state_end, phi = crtbp.split_state_and_stm(sol.y[:, -1])
+
+        residual = state_end - state0
+        residual_norm = np.linalg.norm(residual)
+        if verbose:
+            print(f"  iter {iteration:2d}: |x(T) - x0| = {residual_norm:.3e}   T = {period:.8f}")
+
+        if residual_norm < tolerance:
+            return {"state0": state0.copy(),
+                    "period": period,
+                    "half_period": 0.5 * period,
+                    "jacobi": crtbp.jacobi_constant(state0, mu),
+                    "iterations": iteration,
+                    "residual": residual_norm}
+
+        jac = np.zeros((6, 7))
+        jac[:, :6] = phi - np.eye(6)
+        jac[:, 6] = crtbp.equations_of_motion(period, state_end, mu)
+
+        # Minimum-norm solution of  jac @ correction = -residual.
+        correction = jac.T @ np.linalg.solve(jac @ jac.T, -residual)
+        state0 = state0 + correction[:6]
+        period = period + correction[6]
+        if period <= 0.0:
+            raise RuntimeError("general corrector drove the period negative; the guess is not near a periodic orbit")
+
+    raise RuntimeError(f"general corrector did not converge in {max_iterations} iterations "
+                       f"(residual {residual_norm:.3e})")
+
+
+def correct_any(state0, mu=MU, fixed=None, period_guess=None, tolerance=1e-11, verbose=False):
+    """
+    Pick the right corrector for a state and run it.
+
+    A perpendicular xz-plane crossing with z = 0 goes to correct_planar,
+    one with z != 0 to correct_halo, and anything else to the general
+    corrector, which needs period_guess.  `fixed` names the initial
+    component held constant by the symmetric correctors ("x0", "z0" or
+    "vy0"); None picks z0 for halos and x0 for planar orbits.
+
+    Returns (orbit, corrector_name).
+    """
+    state0 = np.asarray(state0, dtype=float)
+    if is_perpendicular_crossing(state0):
+        if is_planar(state0):
+            fixed = fixed if fixed in ("x0", "vy0") else "x0"
+            orbit = correct_planar(state0[0], state0[4], mu, fixed=fixed, tolerance=tolerance, verbose=verbose)
+            return orbit, "planar"
+        fixed = fixed if fixed in ("x0", "z0", "vy0") else "z0"
+        orbit = correct_halo(state0[0], state0[2], state0[4], mu, fixed=fixed, tolerance=tolerance, verbose=verbose)
+        return orbit, "halo"
+    if period_guess is None:
+        raise ValueError("the state is not a perpendicular xz-plane crossing, so a period guess is needed")
+    orbit = correct_periodic(state0, period_guess, mu, tolerance=max(tolerance, 1e-10), verbose=verbose)
+    return orbit, "general"
+
+
+def annotate_orbit(orbit, mu=MU):
+    """
+    Add perilune_radius, apolune_radius, stability_index and eigenvalues
+    to an orbit dictionary, the same keys a family member carries.
+    """
+    radius_min, _, radius_max, _ = closest_and_farthest_approach(orbit, mu)
+    nu, eigenvalues = stability_index(monodromy_matrix(orbit, mu))
+    orbit["perilune_radius"] = radius_min
+    orbit["apolune_radius"] = radius_max
+    orbit["stability_index"] = nu
+    orbit["eigenvalues"] = eigenvalues
+    return orbit
