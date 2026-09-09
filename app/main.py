@@ -42,6 +42,9 @@ FAMILY_LABELS = {name: [member_label(index, orbit) for index, orbit in enumerate
                  for name, family in FAMILIES.items()}
 FIXED_POINTS = propagation.fixed_points()
 
+TABLE_HEADER = {"backgroundColor": "#0e121b", "color": "#66718a", "fontWeight": "600", "border": "1px solid #232b3a"}
+TABLE_DATA = {"backgroundColor": "#121722", "color": "#e7eaf0", "border": "1px solid #232b3a"}
+
 TREE_GLYPH = {"spacecraft": ("◆", "glyph-spacecraft"),
               "ground_station": ("▲", "glyph-station"),
               "optical_sensor": ("●", "glyph-sensor")}
@@ -88,7 +91,7 @@ dash_app.layout = html.Div([
     # ---- top bar ----
     html.Div([
         html.Div([html.Span("Cislunar mission tool", className="brand-title"),
-                  html.Span("Earth-Moon CRTBP, rotating frame", className="brand-subtitle")],
+                  html.Span("Earth-Moon CRTBP · mu = 0.012151", className="brand-subtitle")],
                  className="brand"),
         html.Div([
             setting("Scenario", dcc.Input(id="scenario-name", type="text", className="wide", debounce=True,
@@ -99,27 +102,17 @@ dash_app.layout = html.Div([
                                                  debounce=True, value=initial_scenario.duration_days, min=0.1)),
             setting("Step [s]", dcc.Input(id="scenario-step", type="number", className="narrow", debounce=True,
                                           value=initial_scenario.time_step_s, min=1)),
-            setting("View", dcc.Dropdown(id="view-select", className="dash-dropdown narrow", clearable=False,
-                                         value="moon", options=[{"label": "Moon region", "value": "moon"},
-                                                                {"label": "Whole system", "value": "system"}])),
-            setting("Frame", dcc.Dropdown(id="frame-select", className="dash-dropdown medium", clearable=False,
-                                          value="rotating",
-                                          options=[{"label": "Rotating, barycentric", "value": "rotating"},
-                                                   {"label": "Rotating, Moon-centred", "value": "moon_rotating"},
-                                                   {"label": "Inertial, Moon-centred", "value": "moon_inertial"},
-                                                   {"label": "Inertial, Earth-centred", "value": "earth_inertial"},
-                                                   {"label": "Inertial, barycentric", "value": "inertial"}])),
         ], className="settings"),
         html.Div([
             html.Span("Panels", className="panel-title"),
             toggle_button("Tree", "toggle-left"),
             toggle_button("Windows", "toggle-right"),
-            toggle_button("Time series", "toggle-bottom"),
+            toggle_button("Series", "toggle-bottom"),
         ], className="toggles"),
         html.Div([
             html.Button("Run analysis", id="run-button", className="primary", n_clicks=0),
-            html.Button("Save JSON", id="save-button", n_clicks=0),
-            dcc.Upload(html.Div("Load JSON", className="upload-box"), id="load-upload", multiple=False),
+            html.Button("Save", id="save-button", n_clicks=0),
+            dcc.Upload(html.Div("Load", className="upload-box"), id="load-upload", multiple=False),
         ], className="actions"),
     ], className="topbar"),
 
@@ -167,6 +160,9 @@ dash_app.layout = html.Div([
                     html.Li("Select an object, edit its fields, press Apply."),
                     html.Li("Press Run analysis. Pick an observer-spacecraft pair on the right."),
                     html.Li("Save JSON to keep the scenario; scripts/ shows how to sweep it without the GUI."),
+                    html.Li("In the scene, drag to turn and scroll to zoom. Scrolling over an orbit, a body or "
+                            "a marker zooms toward that point; over empty space it zooms toward the centre. "
+                            "The Focus menu recentres on the Moon, Earth, a libration point or a spacecraft."),
                 ], className="help"),
             ], className="details"),
             html.Div(className="divider"),
@@ -175,9 +171,23 @@ dash_app.layout = html.Div([
                      className="form-actions"),
             html.Div(id="form-status", className="form-status"),
         ], panel_id="left-panel"),
-        panel("Rotating frame", dcc.Graph(id="view-3d", style={"height": "100%"}, responsive=True,
-                                          config={"displaylogo": False}),
-              header_extra=html.Span(id="run-status", className="status"),
+        panel("Scene", dcc.Graph(id="view-3d", style={"height": "100%"}, responsive=True,
+                                 config={"displaylogo": False}),
+              header_extra=html.Div([
+                  html.Span(id="run-status", className="status"),
+                  dcc.Dropdown(id="view-select", className="dash-dropdown narrow", clearable=False,
+                               value="moon", options=[{"label": "Moon region", "value": "moon"},
+                                                      {"label": "Whole system", "value": "system"}]),
+                  dcc.Dropdown(id="frame-select", className="dash-dropdown medium", clearable=False,
+                               value="rotating",
+                               options=[{"label": "Rotating, barycentric", "value": "rotating"},
+                                        {"label": "Rotating, Moon-centred", "value": "moon_rotating"},
+                                        {"label": "Inertial, Moon-centred", "value": "moon_inertial"},
+                                        {"label": "Inertial, Earth-centred", "value": "earth_inertial"},
+                                        {"label": "Inertial, barycentric", "value": "inertial"}]),
+                  dcc.Dropdown(id="focus-select", className="dash-dropdown narrow", clearable=False, value="none",
+                               options=[{"label": "Focus: free", "value": "none"}]),
+              ], className="header-controls"),
               body_class="panel-body flush"),
         panel("Access windows", [
             dcc.Dropdown(id="pair-select", className="dash-dropdown", clearable=False, placeholder="observer → spacecraft"),
@@ -198,6 +208,7 @@ dash_app.layout = html.Div([
                                           {"name": "Duration [h]", "id": "duration"}],
                                  data=[], page_size=12, style_as_list_view=True,
                                  style_table={"overflowX": "auto"},
+                                 style_header=TABLE_HEADER, style_data=TABLE_DATA,
                                  style_cell={"padding": "5px 8px", "textAlign": "left", "whiteSpace": "nowrap"},
                                  style_cell_conditional=[{"if": {"column_id": "index"}, "width": "30px"},
                                                          {"if": {"column_id": "duration"}, "textAlign": "right"}]),
@@ -217,6 +228,7 @@ dash_app.layout = html.Div([
                           html.Span(id="sweep-status", className="status")], className="form-actions"),
                 dash_table.DataTable(id="sweep-table", data=[], columns=[], page_size=10, style_as_list_view=True,
                                      style_table={"overflowX": "auto"}, sort_action="native",
+                                     style_header=TABLE_HEADER, style_data=TABLE_DATA,
                                      style_cell={"padding": "4px 8px", "textAlign": "right", "whiteSpace": "nowrap"}),
                 dcc.Download(id="sweep-download"),
             ], className="details"),
@@ -226,13 +238,16 @@ dash_app.layout = html.Div([
     # ---- bottom ----
     html.Div([
         panel("Time series", [
+            html.Details([
+                html.Summary("What this shows"),
+                html.P("Green bands are the access windows. Dashed lines are the thresholds: the spacecraft must "
+                       "be above the elevation line, brighter (lower on the reversed magnitude axis) than the "
+                       "limiting magnitude, and farther from the Moon than the exclusion angle. Darkness and "
+                       "shadow are not drawn but still apply. The pale line is the slider time.",
+                       className="help-text"),
+            ], className="details panel-note"),
             dcc.Graph(id="time-series", figure=figures.empty_time_series_figure(), responsive=True,
-                      style={"height": "360px"}, config={"displaylogo": False}),
-            html.Div("Green bands are the access windows. Dashed lines are the thresholds: the spacecraft must "
-                     "be above the elevation line, brighter (lower on the reversed magnitude axis) than the "
-                     "limiting magnitude, and farther from the Moon than the exclusion angle. Darkness and "
-                     "shadow are not drawn but still apply. The black line is the slider time.",
-                     className="help-text panel-note"),
+                      style={"height": "210px"}, config={"displaylogo": False}),
             html.Div([
                 html.Span("Time", className="panel-title"),
                 html.Div(dcc.Slider(id="time-slider", min=0, max=1, step=1, value=0, marks={},
@@ -774,7 +789,7 @@ def run_analysis(n_clicks, scenario_data, current_pair):
         if index < n_samples:
             marks[index] = f"{day} d"
 
-    status = f"{n_samples:,} samples, {len(scenario.spacecraft)} spacecraft, computed in {elapsed:.1f} s"
+    status = f"{n_samples:,} samples · {len(scenario.spacecraft)} spacecraft · {elapsed:.1f} s"
     return run_id, status, options, pair, n_samples - 1, marks, 0
 
 
@@ -887,14 +902,45 @@ def displayed_frame(results, frame):
     return trajectories, converted_manifolds, stations, bodies, None
 
 
+@dash_app.callback(Output("focus-select", "options"), Output("focus-select", "value"),
+              Input("scenario-store", "data"), State("focus-select", "value"))
+def focus_options(scenario_data, current):
+    scenario = Scenario.from_dict(scenario_data)
+    options = [{"label": "Focus: free", "value": "none"},
+               {"label": "Focus: Moon", "value": "body:moon"},
+               {"label": "Focus: Earth", "value": "body:earth"},
+               {"label": "Focus: L1", "value": "point:L1"},
+               {"label": "Focus: L2", "value": "point:L2"}]
+    options.extend({"label": f"Focus: {spacecraft.name}", "value": f"spacecraft:{spacecraft.name}"}
+                   for spacecraft in scenario.spacecraft)
+    values = [option["value"] for option in options]
+    return options, current if current in values else "none"
+
+
+def focus_point_for(focus, trajectories, bodies, points, index):
+    """The displayed-frame point a focus choice refers to, or None."""
+    kind, _, name = (focus or "none").partition(":")
+    if kind == "body" and name in bodies:
+        positions = np.asarray(bodies[name])
+        return positions if positions.ndim == 1 else positions[index]
+    if kind == "point" and points and name in points:
+        return points[name]
+    if kind == "spacecraft" and name in trajectories:
+        return trajectories[name][index, :3]
+    return None
+
+
 @dash_app.callback(Output("view-3d", "figure"), Output("time-series", "figure"), Output("time-readout", "children"),
               Input("results-store", "data"), Input("pair-select", "value"),
-              Input("time-slider", "value"), Input("view-select", "value"), Input("frame-select", "value"))
-def update_views(run_id, pair, slider_index, view, frame):
+              Input("time-slider", "value"), Input("view-select", "value"), Input("frame-select", "value"),
+              Input("focus-select", "value"))
+def update_views(run_id, pair, slider_index, view, frame, focus):
     if run_id not in RESULTS:
         bodies = {"earth": FIXED_POINTS["earth"], "moon": FIXED_POINTS["moon"]}
-        figure_3d = figures.trajectory_figure({}, bodies, BODY_RADII, points={"L1": FIXED_POINTS["L1"],
-                                                                                "L2": FIXED_POINTS["L2"]}, view=view)
+        points = {"L1": FIXED_POINTS["L1"], "L2": FIXED_POINTS["L2"]}
+        figure_3d = figures.trajectory_figure({}, bodies, BODY_RADII, points=points, view=view,
+                                              focus_point=focus_point_for(focus, {}, bodies, points, 0),
+                                              focus_key=focus)
         return figure_3d, figures.empty_time_series_figure(), ""
 
     scenario = RESULTS[run_id]["scenario"]
@@ -907,7 +953,9 @@ def update_views(run_id, pair, slider_index, view, frame):
     figure_3d = figures.trajectory_figure(trajectories, bodies, BODY_RADII, index=index, points=points,
                                           station_positions=stations, marker_states=markers,
                                           manifolds=manifold_branches, view=view,
-                                          frame_label=FRAME_LABELS[frame])
+                                          frame_label=FRAME_LABELS[frame],
+                                          focus_point=focus_point_for(focus, trajectories, bodies, points, index),
+                                          focus_key=focus)
 
     if pair:
         key = pair_key(pair)

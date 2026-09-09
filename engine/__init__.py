@@ -8,12 +8,21 @@ Rules for everything in this package
   * no imports from model/ or app/
 
 Modules
-  crtbp        Earth-Moon circular restricted three-body dynamics
-  corrector    halo orbit differential correction and continuation
-  frames       time, Sun direction, Earth rotation, station positions
-  propagation  spacecraft trajectories on a time grid
-  photometry   reflected-light apparent magnitude
-  geometry     observer-to-target geometry on a time grid
-  constraints  pluggable access constraints, one function each
-  access       constraint evaluation, windows and duty cycle
+  crtbp          Earth-Moon circular restricted three-body dynamics
+  corrector      periodic orbit correctors (halo, planar, general) and
+                 halo continuation
+  families       seeds and continuation for L1 halos, Lyapunov and DRO
+                 families, mirroring for northern families
+  manifolds      stable and unstable manifold branches of a periodic orbit
+  stationkeeping impulsive targeting station keeping and its delta-v
+  estimation     measurement models and an extended Kalman filter
+  rendezvous     LVLH relative motion and two-impulse rendezvous
+  kepler         two-body elements about the Moon or Earth <-> state
+  frames         time, Sun direction, Earth rotation, station positions,
+                 inertial frames for display
+  propagation    spacecraft trajectories on a time grid
+  photometry     reflected-light apparent magnitude
+  geometry       observer-to-target geometry on a time grid
+  constraints    pluggable access constraints, one function each
+  access         constraint evaluation, windows, duty cycle, coverage
 """
