@@ -24,7 +24,7 @@ import numpy as np
 from dash import Dash, dcc, html, dash_table, Input, Output, State, ALL, ctx, no_update
 
 from engine import crtbp, frames, propagation
-from model import orbits, runner
+from model import orbits, runner, sweep
 from model.family import load_families, nearest_member, member_label, DEFAULT_FAMILY_NAME
 from model.scenario import (Scenario, Spacecraft, GroundStation, OpticalSensor, example_scenario,
                             ELEMENT_PRESETS)
@@ -53,6 +53,13 @@ TREE_GLYPH = {"spacecraft": ("◆", "glyph-spacecraft"),
 
 def setting(label, component):
     return html.Div([html.Label(label), component], className="setting")
+
+
+def field(label, component, hint=None):
+    children = [html.Label(label), component]
+    if hint:
+        children.append(html.Span(hint, className="hint"))
+    return html.Div(children, className="field")
 
 
 def panel(title, body, header_extra=None, body_class="panel-body", panel_id=None):
@@ -194,6 +201,25 @@ dash_app.layout = html.Div([
                                  style_cell={"padding": "5px 8px", "textAlign": "left", "whiteSpace": "nowrap"},
                                  style_cell_conditional=[{"if": {"column_id": "index"}, "width": "30px"},
                                                          {"if": {"column_id": "duration"}, "textAlign": "right"}]),
+            html.Details([
+                html.Summary("Parameter sweep"),
+                html.P("Run the scenario once per value of one setting and compare the access statistics. "
+                       "The same rows come from model.sweep in a script.", className="help-text"),
+                html.Div([field("Object", dcc.Dropdown(id="sweep-object", className="dash-dropdown", clearable=False)),
+                          field("Setting", dcc.Dropdown(id="sweep-attribute", className="dash-dropdown", clearable=False))],
+                         className="form-row"),
+                html.Div([field("From", dcc.Input(id="sweep-from", type="number", value=0)),
+                          field("To", dcc.Input(id="sweep-to", type="number", value=60)),
+                          field("Steps", dcc.Input(id="sweep-steps", type="number", value=7, min=2, max=200, step=1))],
+                         className="form-row three"),
+                html.Div([html.Button("Run sweep", id="sweep-button", className="small primary", n_clicks=0),
+                          html.Button("Download CSV", id="sweep-download-button", className="small", n_clicks=0),
+                          html.Span(id="sweep-status", className="status")], className="form-actions"),
+                dash_table.DataTable(id="sweep-table", data=[], columns=[], page_size=10, style_as_list_view=True,
+                                     style_table={"overflowX": "auto"}, sort_action="native",
+                                     style_cell={"padding": "4px 8px", "textAlign": "right", "whiteSpace": "nowrap"}),
+                dcc.Download(id="sweep-download"),
+            ], className="details"),
         ], panel_id="right-panel"),
     ], className="main", id="main-row"),
 
@@ -322,13 +348,6 @@ def render_tree(scenario_data, selected):
 # --------------------------------------------------------------------------
 # Property form
 # --------------------------------------------------------------------------
-
-def field(label, component, hint=None):
-    children = [html.Label(label), component]
-    if hint:
-        children.append(html.Span(hint, className="hint"))
-    return html.Div(children, className="field")
-
 
 def prop_input(name, value, **kwargs):
     return dcc.Input(id={"type": "prop", "field": name}, value=value, debounce=False, **kwargs)
@@ -904,6 +923,91 @@ def update_views(run_id, pair, slider_index, view, frame):
     readout = f"{epoch_plus_seconds(scenario.epoch_utc, current_time_s)} UTC  " \
               f"(+{current_time_s / crtbp.SECONDS_PER_DAY:.3f} d, {results['times_nondim'][index]:.4f} TU)"
     return figure_3d, figure_series, readout
+
+
+# --------------------------------------------------------------------------
+# Parameter sweep
+# --------------------------------------------------------------------------
+
+SWEEP_ROWS = {}
+
+
+@dash_app.callback(Output("sweep-object", "options"), Output("sweep-object", "value"),
+              Input("scenario-store", "data"), State("sweep-object", "value"))
+def sweep_objects(scenario_data, current):
+    scenario = Scenario.from_dict(scenario_data)
+    options = [{"label": "Scenario", "value": "scenario"}]
+    options.extend({"label": obj.name, "value": obj.name} for obj in scenario.all_objects())
+    values = [option["value"] for option in options]
+    return options, current if current in values else values[0]
+
+
+@dash_app.callback(Output("sweep-attribute", "options"), Output("sweep-attribute", "value"),
+              Input("sweep-object", "value"), State("scenario-store", "data"), State("sweep-attribute", "value"))
+def sweep_attributes(target_name, scenario_data, current):
+    scenario = Scenario.from_dict(scenario_data)
+    if target_name == "scenario":
+        kind = "scenario"
+    else:
+        obj = scenario.find(target_name)
+        if obj is None:
+            return [], None
+        kind = obj.kind
+    options = [{"label": label, "value": attribute} for attribute, label in sweep.SWEEPABLE[kind]]
+    values = [option["value"] for option in options]
+    return options, current if current in values else values[0]
+
+
+@dash_app.callback(Output("sweep-table", "data"), Output("sweep-table", "columns"), Output("sweep-status", "children"),
+              Input("sweep-button", "n_clicks"), State("sweep-object", "value"), State("sweep-attribute", "value"),
+              State("sweep-from", "value"), State("sweep-to", "value"), State("sweep-steps", "value"),
+              State("scenario-store", "data"), prevent_initial_call=True)
+def run_sweep(n_clicks, target_name, attribute, start, stop, steps, scenario_data):
+    if not target_name or not attribute or start is None or stop is None:
+        return [], [], "Choose an object, a setting and a range."
+    scenario = Scenario.from_dict(scenario_data)
+    values = np.linspace(float(start), float(stop), int(max(2, steps or 2)))
+    if attribute == "family_index":
+        values = np.unique(np.round(values).astype(int))
+    started = time.perf_counter()
+    try:
+        rows = sweep.sweep(scenario, target_name, attribute, values, FAMILIES)
+    except (ValueError, KeyError, IndexError) as error:
+        return [], [], f"Sweep failed: {error}"
+    elapsed = time.perf_counter() - started
+    SWEEP_ROWS.clear()
+    SWEEP_ROWS["rows"] = rows
+
+    shown = []
+    for row in rows:
+        shown.append({attribute: f"{row[attribute]:g}",
+                      "pair": f"{row['observer']} → {row['spacecraft']}",
+                      "duty %": f"{100.0 * row['duty_cycle']:.1f}",
+                      "windows": row["n_windows"],
+                      "total h": f"{row['total_hours']:.1f}",
+                      "longest h": f"{row['longest_hours']:.2f}"})
+    columns = [{"name": name, "id": name} for name in shown[0].keys()] if shown else []
+    return shown, columns, f"{len(values)} runs in {elapsed:.1f} s"
+
+
+@dash_app.callback(Output("sweep-download", "data"), Input("sweep-download-button", "n_clicks"),
+              State("sweep-attribute", "value"), prevent_initial_call=True)
+def download_sweep(n_clicks, attribute):
+    rows = SWEEP_ROWS.get("rows")
+    if not rows:
+        return no_update
+    import io
+    buffer = io.StringIO()
+    fieldnames = []
+    for row in rows:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
+    import csv
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+    return dict(content=buffer.getvalue(), filename=f"sweep_{attribute}.csv")
 
 
 if __name__ == "__main__":

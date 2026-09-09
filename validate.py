@@ -112,6 +112,12 @@ def main():
     print(f"  1 LU/TU = {crtbp.VELOCITY_UNIT_KM_S:.6f} km/s")
     libration = crtbp.collinear_libration_points(MU)
     print(f"  L1 x = {libration['L1']:.12f}   L2 x = {libration['L2']:.12f}   L3 x = {libration['L3']:.12f}")
+    # Jacobi constant of each point at rest: the energy at which the
+    # zero-velocity surfaces open at that point.
+    for name in ("L1", "L2", "L3"):
+        at_rest = np.array([libration[name], 0.0, 0.0, 0.0, 0.0, 0.0])
+        print(f"  C({name}) = {crtbp.jacobi_constant(at_rest, MU):.6f}", end="")
+    print()
     print()
 
     print("=" * 78)
