@@ -816,10 +816,25 @@ def save_scenario(n_clicks, scenario_data):
 @dash_app.callback(Output("results-store", "data"), Output("run-status", "children"),
               Output("pair-select", "options"), Output("pair-select", "value"),
               Output("time-slider", "max"), Output("time-slider", "marks"), Output("time-slider", "value"),
+              Output("scenario-store", "data", allow_duplicate=True),
+              Output("selected-store", "data", allow_duplicate=True),
               Input("run-button", "n_clicks"), State("scenario-store", "data"),
-              State("pair-select", "value"))
-def run_analysis(n_clicks, scenario_data, current_pair):
+              State("pair-select", "value"), State("selected-store", "data"),
+              State({"type": "prop", "field": ALL}, "value"), State({"type": "prop", "field": ALL}, "id"),
+              prevent_initial_call="initial_duplicate")
+def run_analysis(n_clicks, scenario_data, current_pair, selected, prop_values, prop_ids):
     scenario = Scenario.from_dict(scenario_data)
+
+    # Whatever is typed in the property form counts: Run applies it
+    # first, so editing a field and pressing Run is enough.
+    scenario_changed = False
+    obj = scenario.find(selected) if selected else None
+    if obj is not None and prop_ids:
+        before = scenario.to_dict()
+        apply_form_values(scenario, obj, prop_values, prop_ids)
+        scenario_changed = scenario.to_dict() != before
+        selected = obj.name
+
     started = time.perf_counter()
     results = runner.run_scenario(scenario, FAMILIES)
     elapsed = time.perf_counter() - started
@@ -842,7 +857,9 @@ def run_analysis(n_clicks, scenario_data, current_pair):
             marks[index] = f"{day} d"
 
     status = f"{n_samples:,} samples · {len(scenario.spacecraft)} spacecraft · {elapsed:.1f} s"
-    return run_id, status, options, pair, n_samples - 1, marks, 0
+    return (run_id, status, options, pair, n_samples - 1, marks, 0,
+            scenario.to_dict() if scenario_changed else no_update,
+            selected if scenario_changed else no_update)
 
 
 # --------------------------------------------------------------------------
