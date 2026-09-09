@@ -31,88 +31,126 @@ def sphere_surface(centre, radius, name, color, resolution=30):
                       colorscale=[[0, color], [1, color]], opacity=1.0)
 
 
-def view_window(trajectories, geometry, view):
-    """
-    Axis ranges for the 3D view.
+MANIFOLD_COLORS = {"unstable": "rgba(226, 74, 51, 0.55)", "stable": "rgba(27, 175, 122, 0.55)"}
+BODY_COLORS = {"moon": "#9a9a96", "earth": "#3b6fd6"}
 
-    view = "moon"   : bounding box of the trajectories, the Moon and L1/L2.
-    view = "system" : the same box extended to include the Earth.
-    Returns (lower, upper) arrays of shape (3,) in LU.
+
+def view_window(points, margin_fraction=0.08):
     """
-    points = [geometry["moon"], geometry["L1"], geometry["L2"]]
-    for states in trajectories.values():
-        points.append(states[:, :3].min(axis=0))
-        points.append(states[:, :3].max(axis=0))
-    if view == "system":
-        points.append(geometry["earth"] - frames.EARTH_RADIUS_ND)
-        points.append(geometry["earth"] + frames.EARTH_RADIUS_ND)
-    points = np.array(points)
-    lower = points.min(axis=0)
-    upper = points.max(axis=0)
-    margin = 0.06 * (upper - lower).max()
+    Axis ranges (lower, upper) in LU enclosing a list of (3,) or (n, 3)
+    point arrays with a margin, used to give the 3D view equal scale.
+    """
+    stacked = np.vstack([np.atleast_2d(p) for p in points])
+    lower = stacked.min(axis=0)
+    upper = stacked.max(axis=0)
+    margin = margin_fraction * (upper - lower).max()
     return lower - margin, upper + margin
 
 
-def rotating_frame_figure(trajectories, geometry, station_positions=None, marker_states=None,
-                          view="moon"):
+def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, station_positions=None,
+                      marker_states=None, manifolds=None, view="moon", frame_label="rotating frame",
+                      camera=None):
     """
-    3D view of the rotating frame.
+    3D view of trajectories with the Earth and Moon drawn to scale.
 
-    trajectories      : {name: states (n, 6)} in LU.
-    geometry          : dictionary from engine.propagation.fixed_points().
-    station_positions : optional {name: positions (n, 3)} to draw station
-                        tracks on the Earth.
-    marker_states     : optional {name: state (6,)} for the current-time
-                        markers.
-    view              : "moon" or "system", see view_window.
+    trajectories      : {name: states (n, 6)} in the displayed frame, LU
+    bodies            : {"earth": positions, "moon": positions}, each (3,)
+                        for a fixed body or (n, 3) for a moving one
+    body_radii        : {"earth": r, "moon": r} in LU
+    index             : time index at which moving bodies and markers
+                        are drawn
+    points            : optional {name: (3,)} fixed points to label (L1, L2)
+    station_positions : optional {name: (n, 3)} ground-station tracks
+    marker_states     : optional {name: state (6,)} current-time markers
+    manifolds         : optional {spacecraft: {"unstable": [branch, ...],
+                        "stable": [...]}} from engine.manifolds, in the
+                        displayed frame
+    view              : "moon" frames the trajectories and the Moon,
+                        "system" also includes the Earth
+    frame_label       : text for the axis titles
     """
     figure = go.Figure()
+
+    def body_now(name):
+        positions = np.asarray(bodies[name])
+        if positions.ndim == 1:
+            return positions
+        return positions[min(index, len(positions) - 1)]
+
+    if manifolds:
+        legend_shown = set()
+        for spacecraft, kinds in manifolds.items():
+            for kind, branches in kinds.items():
+                for branch in branches:
+                    shown = subsample(branch["states"], 600)
+                    label = f"{spacecraft} {kind} manifold"
+                    figure.add_trace(go.Scatter3d(x=shown[:, 0], y=shown[:, 1], z=shown[:, 2], mode="lines",
+                                                  name=label, legendgroup=label, showlegend=label not in legend_shown,
+                                                  line=dict(width=1.5, color=MANIFOLD_COLORS[kind]),
+                                                  hoverinfo="name"))
+                    legend_shown.add(label)
 
     for name, states in trajectories.items():
         shown = subsample(states)
         figure.add_trace(go.Scatter3d(x=shown[:, 0], y=shown[:, 1], z=shown[:, 2],
-                                      mode="lines", name=name, line=dict(width=3)))
+                                      mode="lines", name=name, line=dict(width=3.5)))
 
-    figure.add_trace(sphere_surface(geometry["moon"], crtbp.MOON_RADIUS_ND, "Moon", "#8a8a8a"))
-    figure.add_trace(sphere_surface(geometry["earth"], frames.EARTH_RADIUS_ND, "Earth", "#3b6fd6"))
+    for name in ("moon", "earth"):
+        positions = np.asarray(bodies[name])
+        if positions.ndim == 2:
+            shown = subsample(positions)
+            figure.add_trace(go.Scatter3d(x=shown[:, 0], y=shown[:, 1], z=shown[:, 2], mode="lines",
+                                          name=f"{name.capitalize()} path", showlegend=False,
+                                          line=dict(width=1, color=BODY_COLORS[name], dash="dot"), hoverinfo="skip"))
+        figure.add_trace(sphere_surface(body_now(name), body_radii[name], name.capitalize(), BODY_COLORS[name]))
 
-    for point in ("L1", "L2"):
-        figure.add_trace(go.Scatter3d(x=[geometry[point][0]], y=[geometry[point][1]], z=[geometry[point][2]],
-                                      mode="markers+text", name=point, text=[point],
-                                      textposition="top center",
-                                      marker=dict(size=4, color="red")))
+    if points:
+        for name, position in points.items():
+            figure.add_trace(go.Scatter3d(x=[position[0]], y=[position[1]], z=[position[2]],
+                                          mode="markers+text", name=name, text=[name], textposition="top center",
+                                          marker=dict(size=4, color="#e24a33")))
 
     if station_positions:
         for name, positions in station_positions.items():
             shown = subsample(positions)
             figure.add_trace(go.Scatter3d(x=shown[:, 0], y=shown[:, 1], z=shown[:, 2],
-                                          mode="lines", name=name, line=dict(width=2, color="orange")))
+                                          mode="lines", name=name, line=dict(width=2, color="#eb9b34")))
 
     if marker_states:
         for name, state in marker_states.items():
             figure.add_trace(go.Scatter3d(x=[state[0]], y=[state[1]], z=[state[2]],
                                           mode="markers", name=f"{name} (now)",
-                                          marker=dict(size=6, color="black", symbol="diamond")))
+                                          marker=dict(size=6, color="#0b0b0b", symbol="diamond")))
 
     # Equal scale on all three axes.  Plotly's default stretches each axis
     # to fill the box, which turns an NRHO into a fat ellipse.  With an
     # explicit window the aspect ratio has to be set by hand from the
     # range of each axis.
-    lower, upper = view_window(trajectories, geometry, view)
+    window_points = [states[:, :3] for states in trajectories.values()]
+    window_points.append(body_now("moon") - body_radii["moon"])
+    window_points.append(body_now("moon") + body_radii["moon"])
+    if points:
+        window_points.extend(points.values())
+    if view == "system":
+        window_points.append(body_now("earth") - body_radii["earth"])
+        window_points.append(body_now("earth") + body_radii["earth"])
+        window_points.extend(np.atleast_2d(np.asarray(bodies[name])) for name in ("earth", "moon"))
+    lower, upper = view_window(window_points)
     span = upper - lower
     ratio = span / span.max()
 
     km = f"1 LU = {crtbp.LENGTH_UNIT_KM:,.0f} km"
     figure.update_layout(
-        scene=dict(xaxis=dict(title=f"x [LU]  ({km})", range=[lower[0], upper[0]]),
+        scene=dict(xaxis=dict(title=f"x [LU], {frame_label}  ({km})", range=[lower[0], upper[0]]),
                    yaxis=dict(title="y [LU]", range=[lower[1], upper[1]]),
                    zaxis=dict(title="z [LU]", range=[lower[2], upper[2]]),
                    aspectmode="manual",
                    aspectratio=dict(x=ratio[0], y=ratio[1], z=ratio[2]),
-                   camera=dict(eye=dict(x=0.75, y=-1.0, z=0.45))),
+                   dragmode="turntable",
+                   camera=camera or dict(eye=dict(x=0.75, y=-1.0, z=0.45), up=dict(x=0, y=0, z=1))),
         margin=dict(l=0, r=0, t=30, b=0),
         legend=dict(orientation="h", yanchor="bottom", y=1.0),
-        uirevision=view)
+        uirevision=f"{view}-{frame_label}")
     return figure
 
 

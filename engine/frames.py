@@ -192,3 +192,64 @@ def equatorial_to_rotating_matrix(jd):
         x_rot, y_rot, z_rot = ecliptic_to_rotating(x_ecl, y_ecl, z_ecl, jd)
         columns.append(np.array([x_rot, y_rot, z_rot]).reshape(3))
     return np.column_stack(columns)
+
+
+# --------------------------------------------------------------------------
+# Rotating frame to inertial frames, for display
+# --------------------------------------------------------------------------
+
+def rotating_to_inertial_states(states, times_nondim, centre="barycentre", mu=crtbp.MU):
+    """
+    Express rotating-frame states in a non-rotating frame aligned with
+    the rotating axes at t = 0 and centred on the barycentre, the Earth
+    or the Moon.
+
+    The rotating frame turns about z at unit rate, so at time t the
+    inertial position is Rz(t) r and the inertial velocity is
+    Rz(t) (v + z_hat x r): the second term is the velocity the frame
+    itself carries.  For an Earth- or Moon-centred frame the body's own
+    inertial position and velocity (a circle of radius mu or 1 - mu at
+    unit rate) are subtracted.
+
+    states      : (n, 6) rotating-frame states
+    times_nondim: (n,) TU
+    Returns (n, 6) inertial states.
+    """
+    states = np.asarray(states, dtype=float)
+    t = np.asarray(times_nondim, dtype=float)
+    x, y, z = states[:, 0], states[:, 1], states[:, 2]
+    vx, vy, vz = states[:, 3], states[:, 4], states[:, 5]
+
+    # Add the frame's velocity z_hat x r = (-y, x, 0), then rotate.
+    vx_total = vx - y
+    vy_total = vy + x
+    xi, yi, zi = rotate_about_z(x, y, z, t)
+    vxi, vyi, vzi = rotate_about_z(vx_total, vy_total, vz, t)
+
+    if centre != "barycentre":
+        body_x = crtbp.earth_position(mu)[0] if centre == "earth" else crtbp.moon_position(mu)[0]
+        # The body moves on a circle of radius |body_x| at unit rate.
+        body_xi, body_yi, _ = rotate_about_z(body_x, 0.0, 0.0, t)
+        body_vxi, body_vyi, _ = rotate_about_z(0.0, body_x, 0.0, t)
+        xi = xi - body_xi
+        yi = yi - body_yi
+        vxi = vxi - body_vxi
+        vyi = vyi - body_vyi
+    return np.column_stack([xi, yi, zi, vxi, vyi, vzi])
+
+
+def body_positions_inertial(times_nondim, centre="barycentre", mu=crtbp.MU):
+    """
+    Earth and Moon positions (n, 3) in the inertial frame of
+    rotating_to_inertial_states, for drawing them at each time.
+    """
+    t = np.asarray(times_nondim, dtype=float)
+    result = {}
+    for name, body_x in (("earth", crtbp.earth_position(mu)[0]), ("moon", crtbp.moon_position(mu)[0])):
+        xi, yi, _ = rotate_about_z(body_x * np.ones_like(t), np.zeros_like(t), np.zeros_like(t), t)
+        result[name] = np.column_stack([xi, yi, np.zeros_like(t)])
+    if centre != "barycentre":
+        offset = result[centre].copy()
+        for name in result:
+            result[name] = result[name] - offset
+    return result

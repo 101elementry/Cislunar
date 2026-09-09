@@ -95,6 +95,13 @@ dash_app.layout = html.Div([
             setting("View", dcc.Dropdown(id="view-select", className="dash-dropdown narrow", clearable=False,
                                          value="moon", options=[{"label": "Moon region", "value": "moon"},
                                                                 {"label": "Whole system", "value": "system"}])),
+            setting("Frame", dcc.Dropdown(id="frame-select", className="dash-dropdown medium", clearable=False,
+                                          value="rotating",
+                                          options=[{"label": "Rotating, barycentric", "value": "rotating"},
+                                                   {"label": "Rotating, Moon-centred", "value": "moon_rotating"},
+                                                   {"label": "Inertial, Moon-centred", "value": "moon_inertial"},
+                                                   {"label": "Inertial, Earth-centred", "value": "earth_inertial"},
+                                                   {"label": "Inertial, barycentric", "value": "inertial"}])),
         ], className="settings"),
         html.Div([
             html.Span("Panels", className="panel-title"),
@@ -796,12 +803,65 @@ def update_windows(pair, run_id):
 # 3D view, time series and slider
 # --------------------------------------------------------------------------
 
+FRAME_LABELS = {"rotating": "rotating frame", "moon_rotating": "rotating frame, Moon-centred",
+                "moon_inertial": "inertial, Moon-centred", "earth_inertial": "inertial, Earth-centred",
+                "inertial": "inertial, barycentric"}
+BODY_RADII = {"moon": crtbp.MOON_RADIUS_ND, "earth": frames.EARTH_RADIUS_ND}
+
+
+def displayed_frame(results, frame):
+    """
+    Trajectories, manifolds, stations and bodies converted from the
+    rotating frame to the displayed frame (engine.frames does the
+    conversion).  Returns (trajectories, manifolds, stations, bodies,
+    points) in the shapes figures.trajectory_figure expects.
+    """
+    times = results["times_nondim"]
+    trajectories = results["trajectories"]
+    manifold_branches = results["manifolds"]
+    stations = results["stations"]
+
+    if frame in ("rotating", "moon_rotating"):
+        offset = crtbp.moon_position() if frame == "moon_rotating" else np.zeros(3)
+        shift = np.concatenate([offset, np.zeros(3)])
+        trajectories = {name: states - shift for name, states in trajectories.items()}
+        manifold_branches = {name: {kind: [dict(branch, states=branch["states"] - shift) for branch in branches]
+                                    for kind, branches in kinds.items()}
+                             for name, kinds in manifold_branches.items()}
+        stations = {name: positions - offset for name, positions in stations.items()}
+        bodies = {"earth": FIXED_POINTS["earth"] - offset, "moon": FIXED_POINTS["moon"] - offset}
+        points = {"L1": FIXED_POINTS["L1"] - offset, "L2": FIXED_POINTS["L2"] - offset}
+        return trajectories, manifold_branches, stations, bodies, points
+
+    centre = {"moon_inertial": "moon", "earth_inertial": "earth", "inertial": "barycentre"}[frame]
+    trajectories = {name: frames.rotating_to_inertial_states(states, times, centre)
+                    for name, states in trajectories.items()}
+    converted_manifolds = {}
+    for name, kinds in manifold_branches.items():
+        converted_manifolds[name] = {}
+        for kind, branches in kinds.items():
+            converted = []
+            for branch in branches:
+                # A branch leaves the orbit at departure_time and runs for
+                # branch["times"] after it (negative for stable branches).
+                branch_times = branch["departure_time"] + branch["times"]
+                converted.append(dict(branch, states=frames.rotating_to_inertial_states(branch["states"], branch_times, centre)))
+            converted_manifolds[name][kind] = converted
+    station_states = {name: np.hstack([positions, np.zeros_like(positions)]) for name, positions in stations.items()}
+    stations = {name: frames.rotating_to_inertial_states(states, times, centre)[:, :3]
+                for name, states in station_states.items()}
+    bodies = frames.body_positions_inertial(times, centre)
+    return trajectories, converted_manifolds, stations, bodies, None
+
+
 @dash_app.callback(Output("view-3d", "figure"), Output("time-series", "figure"), Output("time-readout", "children"),
               Input("results-store", "data"), Input("pair-select", "value"),
-              Input("time-slider", "value"), Input("view-select", "value"))
-def update_views(run_id, pair, slider_index, view):
+              Input("time-slider", "value"), Input("view-select", "value"), Input("frame-select", "value"))
+def update_views(run_id, pair, slider_index, view, frame):
     if run_id not in RESULTS:
-        figure_3d = figures.rotating_frame_figure({}, FIXED_POINTS, view=view)
+        bodies = {"earth": FIXED_POINTS["earth"], "moon": FIXED_POINTS["moon"]}
+        figure_3d = figures.trajectory_figure({}, bodies, BODY_RADII, points={"L1": FIXED_POINTS["L1"],
+                                                                                "L2": FIXED_POINTS["L2"]}, view=view)
         return figure_3d, figures.empty_time_series_figure(), ""
 
     scenario = RESULTS[run_id]["scenario"]
@@ -809,10 +869,12 @@ def update_views(run_id, pair, slider_index, view):
     index = int(np.clip(slider_index or 0, 0, len(results["times_s"]) - 1))
     current_time_s = results["times_s"][index]
 
-    markers = {name: states[index] for name, states in results["trajectories"].items()}
-    figure_3d = figures.rotating_frame_figure(results["trajectories"], FIXED_POINTS,
-                                              station_positions=results["stations"],
-                                              marker_states=markers, view=view)
+    trajectories, manifold_branches, stations, bodies, points = displayed_frame(results, frame)
+    markers = {name: states[index] for name, states in trajectories.items()}
+    figure_3d = figures.trajectory_figure(trajectories, bodies, BODY_RADII, index=index, points=points,
+                                          station_positions=stations, marker_states=markers,
+                                          manifolds=manifold_branches, view=view,
+                                          frame_label=FRAME_LABELS[frame])
 
     if pair:
         key = pair_key(pair)

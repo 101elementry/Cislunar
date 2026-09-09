@@ -277,3 +277,4 @@ button.small { padding: 5px 10px; font-size: 12px; }
 .status-line.error { background: #fdecec; border-color: #f3b9b9; color: var(--danger); }
 .describe { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-left: 3px solid var(--accent); background: #f6f8fc; border-radius: 4px; }
 .describe-line { font-size: 11.5px; color: var(--text-secondary); font-family: var(--mono); }
+.dash-dropdown.medium { width: 200px; }

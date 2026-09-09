@@ -11,7 +11,7 @@ scripts/ can use them identically.
 
 import numpy as np
 
-from engine import access, constraints, frames, geometry, propagation
+from engine import access, constraints, crtbp, frames, geometry, manifolds, propagation
 from model import orbits
 from model.family import DEFAULT_FAMILY_NAME
 from model.scenario import OpticalSensor
@@ -43,6 +43,27 @@ def spacecraft_trajectory(spacecraft, times_nondim, families=None, epoch_jd=None
     if spacecraft.propagation == "periodic" and period is not None:
         return propagation.propagate_periodic(state0, period, times_nondim)
     return propagation.propagate_state(state0, times_nondim)
+
+
+def spacecraft_manifolds(spacecraft, families, epoch_jd):
+    """
+    Manifold branches asked for by a periodic spacecraft, as
+    {"unstable": [...], "stable": [...]} (either may be missing).
+    A linearly stable orbit has none; the engine's ValueError is turned
+    into an empty result so the run does not fail.
+    """
+    orbit = {"state0": orbits.initial_state(spacecraft, families, epoch_jd),
+             "period": orbits.period(spacecraft, families)}
+    duration = crtbp.time_to_nondim(spacecraft.manifold_time_days * crtbp.SECONDS_PER_DAY)
+    kinds = ["unstable", "stable"] if spacecraft.manifolds == "both" else [spacecraft.manifolds]
+    result = {}
+    for kind in kinds:
+        try:
+            result[kind] = manifolds.manifold_branches(orbit, kind, n_branches=int(spacecraft.manifold_branches),
+                                                       duration=duration)
+        except ValueError:
+            result[kind] = []
+    return result
 
 
 def constraints_for(station, sensor):
@@ -89,6 +110,10 @@ def run_scenario(scenario, families=None, extra_constraints=None):
     Returns a dictionary
       times_s, times_nondim, jd : (n,) grid arrays
       trajectories : {spacecraft name: (n, 6)}
+      manifolds    : {spacecraft name: {"unstable": [branch, ...],
+                                        "stable": [branch, ...]}}
+                     (see engine/manifolds.py; only for periodic
+                     spacecraft that ask for them)
       stations     : {station name: (n, 3) rotating-frame positions}
       observations : {(observer, spacecraft): {
                           "geometry": GeometrySeries,
@@ -105,8 +130,11 @@ def run_scenario(scenario, families=None, extra_constraints=None):
     jd = frames.julian_dates_for_grid(scenario.epoch_utc, times_s)
 
     trajectories = {}
+    manifold_branches = {}
     for spacecraft in scenario.spacecraft:
         trajectories[spacecraft.name] = spacecraft_trajectory(spacecraft, times_nondim, families, jd[0])
+        if spacecraft.manifolds != "none" and orbits.period(spacecraft, families) is not None:
+            manifold_branches[spacecraft.name] = spacecraft_manifolds(spacecraft, families, jd[0])
 
     stations = {}
     for station in scenario.ground_stations:
@@ -139,6 +167,7 @@ def run_scenario(scenario, families=None, extra_constraints=None):
             "times_nondim": times_nondim,
             "jd": jd,
             "trajectories": trajectories,
+            "manifolds": manifold_branches,
             "stations": stations,
             "observations": observations,
             "windows": windows,
