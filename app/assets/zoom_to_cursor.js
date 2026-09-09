@@ -2,10 +2,12 @@
 
    Plotly's own scroll zoom moves the camera toward its centre point,
    which is rarely where you are looking.  This handler runs first: if
-   the cursor is over a trace (an orbit, a body, a marker), the camera
-   is moved so that the hovered point stays fixed on screen while the
-   eye approaches it; over empty space nothing is intercepted and
-   Plotly zooms as usual.
+   the cursor is over a trace (an orbit, a body, a marker), both the
+   eye and the centre are scaled about the hovered point by the same
+   factor.  That keeps the view direction unchanged and the hovered
+   point fixed on screen while the camera approaches it, which is what
+   zooming toward the cursor means.  Over empty space nothing is
+   intercepted and Plotly zooms as usual.
 
    Camera coordinates: Plotly maps the data box so each axis spans
    [-aspectratio / 2, +aspectratio / 2] around the origin (checked from
@@ -17,11 +19,13 @@
     if (graph.dataset.zoomToCursor) { return; }
     graph.dataset.zoomToCursor = "1";
     var hovered = null;
+
     graph.on("plotly_hover", function (event) {
       var point = event.points && event.points[0];
       hovered = point && typeof point.x === "number" ? [point.x, point.y, point.z] : null;
     });
     graph.on("plotly_unhover", function () { hovered = null; });
+    graph.addEventListener("mouseleave", function () { hovered = null; });
 
     graph.addEventListener("wheel", function (event) {
       if (!hovered || !graph._fullLayout || !graph._fullLayout.scene) { return; }
@@ -35,22 +39,22 @@
         var fraction = (hovered[i] - range[0]) / (range[1] - range[0]);
         target.push((fraction - 0.5) * aspect[i]);
       }
-      // Scale the eye-to-target vector: shrinking it moves in, keeping
-      // the target fixed on screen.  Trackpads send small deltas, wheels
-      // large ones; the exponent keeps both smooth.
-      var factor = Math.exp(event.deltaY * 0.002);
+
+      // Scroll up (negative deltaY) moves in.  Trackpads send many small
+      // deltas, wheels a few large ones; the exponent keeps both smooth
+      // and the clamp stops one flick from jumping too far.
+      var step = Math.max(-120, Math.min(120, event.deltaY));
+      var factor = Math.exp(step * 0.0025);
+
       var eye = [camera.eye.x, camera.eye.y, camera.eye.z];
+      var centre = [camera.center.x, camera.center.y, camera.center.z];
       var newEye = [];
+      var newCentre = [];
       for (var k = 0; k < 3; k++) {
         newEye.push(target[k] + (eye[k] - target[k]) * factor);
+        newCentre.push(target[k] + (centre[k] - target[k]) * factor);
       }
-      // Move the centre toward the target as well so turning afterwards
-      // orbits what you zoomed into.
-      var centre = [camera.center.x, camera.center.y, camera.center.z];
-      var newCentre = [];
-      for (var m = 0; m < 3; m++) {
-        newCentre.push(centre[m] + (target[m] - centre[m]) * 0.35);
-      }
+
       event.preventDefault();
       event.stopImmediatePropagation();
       Plotly.relayout(graph, {
@@ -61,8 +65,10 @@
   }
 
   function look() {
-    var graph = document.querySelector("#view-3d .js-plotly-plot");
-    if (graph && graph.on) { attach(graph); }
+    var graphs = document.querySelectorAll("#view-3d .js-plotly-plot, #view-3d-b .js-plotly-plot");
+    for (var i = 0; i < graphs.length; i++) {
+      if (graphs[i].on) { attach(graphs[i]); }
+    }
   }
   var observer = new MutationObserver(look);
   observer.observe(document.documentElement, {childList: true, subtree: true});
