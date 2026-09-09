@@ -102,3 +102,31 @@ estimation:
    mirrored in the GUI as a results browser.
 
 Ask the owner which of these the "suite" means before building.
+
+## Unfinished conversation the owner wants continued
+
+A section-by-section walkthrough of the code for exam preparation was
+started and stopped after section 1 (the dynamics). Sections owed, in
+this order, stopping after each for questions:
+
+2. Jacobi constant: what it is physically, why conserved, why its drift
+   checks the integrator.
+3. State transition matrix: what it represents, why propagated with the
+   state rather than computed afterwards, how the analytic Jacobian was
+   derived. Go slowest here; this is the part the owner understands least.
+4. Differential corrector: why periodic orbits must be solved for, how
+   xz-plane symmetry reduces the problem to two conditions, how Newton
+   uses the STM; show the actual update step in `engine/corrector.py`.
+5. Continuation: why stepping a parameter and re-converging walks the
+   family; what makes the NRHO region different from larger halos.
+6. Monodromy matrix and stability index: eigenvalue meaning, why
+   reciprocal pairs, link to station-keeping frequency.
+
+Format the owner asked for: explain why before what, LaTeX maths with
+one equation per display block on a single line, reference real
+functions and line numbers rather than fresh example code, no bare
+algebra and no derivation essays. The owner knows classical control,
+state space and pole placement, and had not done three-body dynamics
+before. Finish with: least-confident parts, numerical fragility and
+what failure looks like, what to change first in a proper rewrite, and
+which results to check against the JPL catalogue.
