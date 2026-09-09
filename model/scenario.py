@@ -132,11 +132,16 @@ class OpticalSensor:
                            Note that from Earth an L2 NRHO never gets
                            more than about 10 degrees from the Moon, so
                            values above that give no access at all.
+    max_range_km         : range limit (0 means no limit), for a radar
+                           or a link budget rather than a telescope.
+    max_slew_rate_deg_s  : mount rate limit (0 means no limit).
     """
     name: str
     station: str = ""
     limiting_magnitude: float = 18.0
     lunar_exclusion_deg: float = 20.0
+    max_range_km: float = 0.0
+    max_slew_rate_deg_s: float = 0.0
 
     kind = "optical_sensor"
 

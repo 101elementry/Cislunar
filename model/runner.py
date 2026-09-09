@@ -77,6 +77,10 @@ def constraints_for(station, sensor):
     if sensor is not None:
         constraint_list.append(constraints.limiting_magnitude(sensor.limiting_magnitude))
         constraint_list.append(constraints.lunar_exclusion(sensor.lunar_exclusion_deg))
+        if sensor.max_range_km > 0.0:
+            constraint_list.append(constraints.maximum_range(sensor.max_range_km))
+        if sensor.max_slew_rate_deg_s > 0.0:
+            constraint_list.append(constraints.maximum_slew_rate(sensor.max_slew_rate_deg_s))
     return constraint_list
 
 
@@ -123,6 +127,9 @@ def run_scenario(scenario, families=None, extra_constraints=None):
                           "access": (n,) bool}}
       windows      : {(observer, spacecraft): [(start_s, stop_s), ...]}
       duty_cycle   : {(observer, spacecraft): fraction}
+      coverage     : {spacecraft: {"count": (n,) observers with access,
+                                   "windows": [(start_s, stop_s), ...]
+                                   (any observer), "duty_cycle": fraction}}
     """
     families = as_families(families)
     times_s = scenario.time_grid_seconds()
@@ -163,11 +170,25 @@ def run_scenario(scenario, families=None, extra_constraints=None):
             windows[key] = access.windows_from_mask(times_s, passed)
             duty[key] = access.duty_cycle(windows[key], times_s[0], times_s[-1])
 
+    # Multi-station coverage: how many observers see each spacecraft at
+    # each step, and the windows in which at least one does.
+    coverage = {}
+    for spacecraft in scenario.spacecraft:
+        masks = [observations[key]["access"] for key in observations if key[1] == spacecraft.name]
+        if len(masks) == 0:
+            continue
+        any_mask = access.coverage_mask(masks, 1)
+        coverage[spacecraft.name] = {"count": access.coverage_count(masks),
+                                     "windows": access.windows_from_mask(times_s, any_mask),
+                                     "duty_cycle": access.duty_cycle(access.windows_from_mask(times_s, any_mask),
+                                                                     times_s[0], times_s[-1])}
+
     return {"times_s": times_s,
             "times_nondim": times_nondim,
             "jd": jd,
             "trajectories": trajectories,
             "manifolds": manifold_branches,
+            "coverage": coverage,
             "stations": stations,
             "observations": observations,
             "windows": windows,

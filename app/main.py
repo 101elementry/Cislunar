@@ -490,6 +490,12 @@ def render_form(selected, scenario_data):
                                className="form-row"))
         fields.append(html.Span("An L2 NRHO stays within about 10 degrees of the Moon as seen from Earth.",
                                 className="hint"))
+        fields.append(html.Div([field("Max range [km]", prop_input("max_range_km", obj.max_range_km, type="number", min=0)),
+                                field("Max slew rate [deg/s]", prop_input("max_slew_rate_deg_s", obj.max_slew_rate_deg_s,
+                                                                          type="number", min=0, step=0.001))],
+                               className="form-row"))
+        fields.append(html.Span("0 means no limit. Range suits a radar or link budget; slew rate a mount limit "
+                                "(cislunar targets move a few thousandths of a degree per second).", className="hint"))
 
     return fields, False
 
@@ -796,7 +802,15 @@ def update_windows(pair, run_id):
     chips = []
     for name, column in zip(observation["constraint_names"], observation["constraint_masks"].T):
         chips.append(html.Span(f"{name}: {100.0 * column.mean():.0f}%", className="chip"))
-    return rows, [stats, html.Div(chips, className="constraints")]
+
+    # Coverage of this spacecraft by all observers together.
+    coverage = results["coverage"].get(key[1])
+    coverage_note = []
+    if coverage is not None and len(runner.observers(scenario)) > 1:
+        coverage_note = [html.Div(f"All observers together see {key[1]} {100.0 * coverage['duty_cycle']:.1f}% of the "
+                                  f"span in {len(coverage['windows'])} windows; at most "
+                                  f"{int(coverage['count'].max())} at once.", className="coverage-note")]
+    return rows, [stats, html.Div(chips, className="constraints")] + coverage_note
 
 
 # --------------------------------------------------------------------------

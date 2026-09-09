@@ -60,3 +60,22 @@ def duty_cycle(windows, span_start_s, span_stop_s):
         if overlap > 0.0:
             covered = covered + overlap
     return covered / span
+
+
+def coverage_count(masks):
+    """
+    Number of observers with access at each time step, from a list of
+    (n,) boolean access masks.  Returns an (n,) integer array.
+    """
+    if len(masks) == 0:
+        return np.zeros(0, dtype=int)
+    return np.sum(np.array(masks, dtype=int), axis=0)
+
+
+def coverage_mask(masks, minimum_observers=1):
+    """
+    True where at least minimum_observers observers have access at
+    once: the multi-station coverage of a target, from which windows
+    and a duty cycle follow with the usual functions.
+    """
+    return coverage_count(masks) >= minimum_observers

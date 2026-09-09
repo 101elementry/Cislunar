@@ -1,0 +1,57 @@
+% Generated from output/example_scenario.json by scripts/export_gmat.py
+% Earth-Moon rotating, barycentric coordinate system: the CRTBP frame.
+
+Create Barycenter EarthMoonBary;
+GMAT EarthMoonBary.BodyNames = {Earth, Luna};
+
+Create CoordinateSystem EarthMoonRot;
+GMAT EarthMoonRot.Origin = EarthMoonBary;
+GMAT EarthMoonRot.Axes = ObjectReferenced;
+GMAT EarthMoonRot.XAxis = R;
+GMAT EarthMoonRot.ZAxis = N;
+GMAT EarthMoonRot.Primary = Earth;
+GMAT EarthMoonRot.Secondary = Luna;
+
+Create Spacecraft Gateway_like_NRHO;
+GMAT Gateway_like_NRHO.DateFormat = UTCGregorian;
+GMAT Gateway_like_NRHO.Epoch = '01 Jan 2026 00:00:00.000';
+GMAT Gateway_like_NRHO.CoordinateSystem = EarthMoonRot;
+GMAT Gateway_like_NRHO.DisplayStateType = Cartesian;
+GMAT Gateway_like_NRHO.X = 379549.142453821;
+GMAT Gateway_like_NRHO.Y = 0.000000000;
+GMAT Gateway_like_NRHO.Z = 3240.230807092;
+GMAT Gateway_like_NRHO.VX = 0.000000000000;
+GMAT Gateway_like_NRHO.VY = 1.709318425427;
+GMAT Gateway_like_NRHO.VZ = 0.000000000000;
+
+Create ForceModel CislunarForces;
+GMAT CislunarForces.CentralBody = Earth;
+GMAT CislunarForces.PrimaryBodies = {Earth};
+GMAT CislunarForces.PointMasses = {Luna, Sun};
+GMAT CislunarForces.GravityField.Earth.Degree = 4;
+GMAT CislunarForces.GravityField.Earth.Order = 4;
+GMAT CislunarForces.Drag = None;
+GMAT CislunarForces.SRP = Off;
+
+Create Propagator Cislunar;
+GMAT Cislunar.FM = CislunarForces;
+GMAT Cislunar.Type = RungeKutta89;
+GMAT Cislunar.InitialStepSize = 60;
+GMAT Cislunar.Accuracy = 1e-12;
+GMAT Cislunar.MinStep = 0.001;
+GMAT Cislunar.MaxStep = 600;
+
+Create ReportFile RotatingStates;
+GMAT RotatingStates.Filename = 'example_scenario_rotating.txt';
+GMAT RotatingStates.WriteHeaders = true;
+GMAT RotatingStates.Add = {Gateway_like_NRHO.UTCModJulian, Gateway_like_NRHO.EarthMoonRot.X, Gateway_like_NRHO.EarthMoonRot.Y, Gateway_like_NRHO.EarthMoonRot.Z, Gateway_like_NRHO.EarthMoonRot.VX, Gateway_like_NRHO.EarthMoonRot.VY, Gateway_like_NRHO.EarthMoonRot.VZ};
+
+Create OrbitView RotatingView;
+GMAT RotatingView.Add = {Gateway_like_NRHO, Earth, Luna};
+GMAT RotatingView.CoordinateSystem = EarthMoonRot;
+GMAT RotatingView.ViewPointReference = Luna;
+GMAT RotatingView.ViewDirection = Luna;
+GMAT RotatingView.ViewUpAxis = Z;
+
+BeginMissionSequence;
+Propagate Cislunar(Gateway_like_NRHO) {Gateway_like_NRHO.ElapsedDays = 14};

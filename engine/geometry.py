@@ -29,6 +29,7 @@ class StepGeometry:
     phase_angle_deg: float
     in_shadow: bool
     apparent_magnitude: float
+    los_rate_deg_s: float
 
 
 @dataclass
@@ -42,6 +43,7 @@ class GeometrySeries:
     phase_angle_deg: np.ndarray
     in_shadow: np.ndarray
     apparent_magnitude: np.ndarray
+    los_rate_deg_s: np.ndarray
 
     def __len__(self):
         return len(self.time_s)
@@ -55,7 +57,8 @@ class GeometrySeries:
                             lunar_separation_deg=float(self.lunar_separation_deg[index]),
                             phase_angle_deg=float(self.phase_angle_deg[index]),
                             in_shadow=bool(self.in_shadow[index]),
-                            apparent_magnitude=float(self.apparent_magnitude[index]))
+                            apparent_magnitude=float(self.apparent_magnitude[index]),
+                            los_rate_deg_s=float(self.los_rate_deg_s[index]))
 
 
 # --------------------------------------------------------------------------
@@ -81,6 +84,26 @@ def elevation_deg(direction_unit, up_unit):
     """
     vertical_component = np.sum(direction_unit * up_unit, axis=1)
     return np.degrees(np.arcsin(np.clip(vertical_component, -1.0, 1.0)))
+
+
+def angular_rate_deg_s(unit_directions, times_s):
+    """
+    Rate at which a unit direction turns, degrees per second, from the
+    angle between neighbouring samples divided by the time between
+    them (central difference inside the grid, one-sided at the ends).
+    This is the slew rate a telescope must follow to track the target.
+    """
+    n = len(times_s)
+    rate = np.zeros(n)
+    if n < 2:
+        return rate
+    angles = angle_between_deg(unit_directions[:-1], unit_directions[1:])
+    intervals = np.diff(np.asarray(times_s, dtype=float))
+    step_rate = angles / intervals
+    rate[0] = step_rate[0]
+    rate[-1] = step_rate[-1]
+    rate[1:-1] = 0.5 * (step_rate[:-1] + step_rate[1:])
+    return rate
 
 
 def in_cylindrical_shadow(positions, sun_direction, body_position, body_radius):
@@ -138,4 +161,5 @@ def observation_geometry(station_latitude_deg, station_longitude_deg, station_al
                           lunar_separation_deg=angle_between_deg(line_of_sight_unit, moon_direction_unit),
                           phase_angle_deg=phase_angle,
                           in_shadow=shadowed,
-                          apparent_magnitude=photometry.apparent_magnitude(range_km, diameter_m, albedo, phase_angle))
+                          apparent_magnitude=photometry.apparent_magnitude(range_km, diameter_m, albedo, phase_angle),
+                          los_rate_deg_s=angular_rate_deg_s(line_of_sight_unit, times_s))

@@ -63,3 +63,25 @@ def lunar_exclusion(min_separation_deg):
     constraint.kind = "lunar_exclusion"
     constraint.name = f"lunar separation >= {min_separation_deg:g} deg"
     return constraint
+
+
+def maximum_range(max_range_km):
+    """The target must be within this distance (a radar or link budget limit)."""
+    def constraint(step):
+        return step.range_km <= max_range_km
+    constraint.kind = "maximum_range"
+    constraint.name = f"range <= {max_range_km:,.0f} km"
+    return constraint
+
+
+def maximum_slew_rate(max_rate_deg_s):
+    """
+    The line of sight must turn no faster than the mount can follow.
+    Cislunar targets move at a few thousandths of a degree per second,
+    so this only bites for low Earth orbits.
+    """
+    def constraint(step):
+        return step.los_rate_deg_s <= max_rate_deg_s
+    constraint.kind = "maximum_slew_rate"
+    constraint.name = f"slew rate <= {max_rate_deg_s:g} deg/s"
+    return constraint
