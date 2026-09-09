@@ -86,6 +86,8 @@ dash_app.layout = html.Div([
     dcc.Store(id="selected-store", data=None),
     dcc.Store(id="results-store", data=None),
     dcc.Store(id="layout-store", data={"left": True, "right": True, "bottom": True}),
+    dcc.Store(id="split-store", data=False),
+    dcc.Interval(id="play-interval", interval=300, disabled=True),
     dcc.Download(id="download"),
 
     # ---- top bar ----
@@ -160,6 +162,8 @@ dash_app.layout = html.Div([
                     html.Li("Select an object, edit its fields, press Apply."),
                     html.Li("Press Run analysis. Pick an observer-spacecraft pair on the right."),
                     html.Li("Save JSON to keep the scenario; scripts/ shows how to sweep it without the GUI."),
+                    html.Li("Press Play on the timeline to run the clock; the markers move and each spacecraft "
+                            "trails a fading tail. Split shows two frames side by side at the same instant."),
                     html.Li("In the scene, drag to turn and scroll to zoom. Scrolling over an orbit, a body or "
                             "a marker zooms toward that point; over empty space it zooms toward the centre. "
                             "The Focus menu recentres on the Moon, Earth, a libration point or a spacecraft."),
@@ -171,10 +175,21 @@ dash_app.layout = html.Div([
                      className="form-actions"),
             html.Div(id="form-status", className="form-status"),
         ], panel_id="left-panel"),
-        panel("Scene", dcc.Graph(id="view-3d", style={"height": "100%"}, responsive=True,
-                                 config={"displaylogo": False}),
+        panel("Scene", html.Div([
+                  dcc.Graph(id="view-3d", style={"height": "100%"}, responsive=True, config={"displaylogo": False}),
+                  dcc.Graph(id="view-3d-b", style={"height": "100%"}, responsive=True, config={"displaylogo": False},
+                            className="scene-b"),
+              ], id="scene-grid", className="scene-grid"),
               header_extra=html.Div([
                   html.Span(id="run-status", className="status"),
+                  html.Button("Split", id="split-button", className="toggle", n_clicks=0),
+                  dcc.Dropdown(id="frame-select-b", className="dash-dropdown medium scene-b", clearable=False,
+                               value="moon_inertial",
+                               options=[{"label": "Rotating, barycentric", "value": "rotating"},
+                                        {"label": "Rotating, Moon-centred", "value": "moon_rotating"},
+                                        {"label": "Inertial, Moon-centred", "value": "moon_inertial"},
+                                        {"label": "Inertial, Earth-centred", "value": "earth_inertial"},
+                                        {"label": "Inertial, barycentric", "value": "inertial"}]),
                   dcc.Dropdown(id="view-select", className="dash-dropdown narrow", clearable=False,
                                value="moon", options=[{"label": "Moon region", "value": "moon"},
                                                       {"label": "Whole system", "value": "system"}]),
@@ -187,7 +202,7 @@ dash_app.layout = html.Div([
                                         {"label": "Inertial, barycentric", "value": "inertial"}]),
                   dcc.Dropdown(id="focus-select", className="dash-dropdown narrow", clearable=False, value="none",
                                options=[{"label": "Focus: free", "value": "none"}]),
-              ], className="header-controls"),
+              ], className="header-controls", id="scene-header-controls"),
               body_class="panel-body flush"),
         panel("Access windows", [
             dcc.Dropdown(id="pair-select", className="dash-dropdown", clearable=False, placeholder="observer → spacecraft"),
@@ -250,6 +265,11 @@ dash_app.layout = html.Div([
                       style={"height": "210px"}, config={"displaylogo": False}),
             html.Div([
                 html.Span("Time", className="panel-title"),
+                html.Button("Play", id="play-button", className="small play", n_clicks=0),
+                dcc.Dropdown(id="play-speed", className="dash-dropdown speed", clearable=False, value=5,
+                             options=[{"label": "1 step / tick", "value": 1}, {"label": "5 steps / tick", "value": 5},
+                                      {"label": "20 steps / tick", "value": 20}, {"label": "60 steps / tick", "value": 60},
+                                      {"label": "240 steps / tick", "value": 240}]),
                 html.Div(dcc.Slider(id="time-slider", min=0, max=1, step=1, value=0, marks={},
                                     tooltip={"placement": "top", "always_visible": False}),
                          className="slider"),
@@ -292,6 +312,37 @@ def apply_panel_layout(layout):
 
     return (main_class, not layout["left"], not layout["right"], not layout["bottom"],
             button_class(layout["left"]), button_class(layout["right"]), button_class(layout["bottom"]))
+
+
+# --------------------------------------------------------------------------
+# Playback and split view
+# --------------------------------------------------------------------------
+
+@dash_app.callback(Output("play-interval", "disabled"), Output("play-button", "children"),
+              Output("play-button", "className"),
+              Input("play-button", "n_clicks"), State("play-interval", "disabled"), prevent_initial_call=True)
+def toggle_play(n_clicks, disabled):
+    playing = disabled
+    return (not playing), ("Pause" if playing else "Play"), ("small play active" if playing else "small play")
+
+
+@dash_app.callback(Output("time-slider", "value", allow_duplicate=True),
+              Input("play-interval", "n_intervals"), State("time-slider", "value"), State("time-slider", "max"),
+              State("play-speed", "value"), prevent_initial_call=True)
+def advance_time(n_intervals, value, maximum, speed):
+    """Move the clock forward by `speed` samples per tick, wrapping at the end."""
+    if maximum is None or maximum <= 0:
+        return no_update
+    return int((value or 0) + int(speed or 1)) % (int(maximum) + 1)
+
+
+@dash_app.callback(Output("split-store", "data"), Output("split-button", "className"),
+              Output("scene-grid", "className"), Output("scene-header-controls", "className"),
+              Input("split-button", "n_clicks"), State("split-store", "data"), prevent_initial_call=True)
+def toggle_split(n_clicks, split):
+    split = not split
+    return (split, ("toggle active" if split else "toggle"), ("scene-grid split" if split else "scene-grid"),
+            ("header-controls split" if split else "header-controls"))
 
 
 # --------------------------------------------------------------------------
@@ -930,32 +981,40 @@ def focus_point_for(focus, trajectories, bodies, points, index):
     return None
 
 
-@dash_app.callback(Output("view-3d", "figure"), Output("time-series", "figure"), Output("time-readout", "children"),
+def scene_figure(results, frame, view, focus, index):
+    """The 3D figure of one frame at one time index."""
+    trajectories, manifold_branches, stations, bodies, points = displayed_frame(results, frame)
+    markers = {name: states[index] for name, states in trajectories.items()}
+    trail = max(2, len(results["times_s"]) // 12)
+    return figures.trajectory_figure(trajectories, bodies, BODY_RADII, index=index, points=points,
+                                     station_positions=stations, marker_states=markers,
+                                     manifolds=manifold_branches, view=view,
+                                     frame_label=FRAME_LABELS[frame],
+                                     focus_point=focus_point_for(focus, trajectories, bodies, points, index),
+                                     focus_key=focus, trail_samples=trail)
+
+
+@dash_app.callback(Output("view-3d", "figure"), Output("view-3d-b", "figure"), Output("time-series", "figure"),
+              Output("time-readout", "children"),
               Input("results-store", "data"), Input("pair-select", "value"),
               Input("time-slider", "value"), Input("view-select", "value"), Input("frame-select", "value"),
-              Input("focus-select", "value"))
-def update_views(run_id, pair, slider_index, view, frame, focus):
+              Input("frame-select-b", "value"), Input("split-store", "data"), Input("focus-select", "value"))
+def update_views(run_id, pair, slider_index, view, frame, frame_b, split, focus):
     if run_id not in RESULTS:
         bodies = {"earth": FIXED_POINTS["earth"], "moon": FIXED_POINTS["moon"]}
         points = {"L1": FIXED_POINTS["L1"], "L2": FIXED_POINTS["L2"]}
         figure_3d = figures.trajectory_figure({}, bodies, BODY_RADII, points=points, view=view,
                                               focus_point=focus_point_for(focus, {}, bodies, points, 0),
                                               focus_key=focus)
-        return figure_3d, figures.empty_time_series_figure(), ""
+        return figure_3d, figure_3d, figures.empty_time_series_figure(), ""
 
     scenario = RESULTS[run_id]["scenario"]
     results = RESULTS[run_id]["results"]
     index = int(np.clip(slider_index or 0, 0, len(results["times_s"]) - 1))
     current_time_s = results["times_s"][index]
 
-    trajectories, manifold_branches, stations, bodies, points = displayed_frame(results, frame)
-    markers = {name: states[index] for name, states in trajectories.items()}
-    figure_3d = figures.trajectory_figure(trajectories, bodies, BODY_RADII, index=index, points=points,
-                                          station_positions=stations, marker_states=markers,
-                                          manifolds=manifold_branches, view=view,
-                                          frame_label=FRAME_LABELS[frame],
-                                          focus_point=focus_point_for(focus, trajectories, bodies, points, index),
-                                          focus_key=focus)
+    figure_3d = scene_figure(results, frame, view, focus, index)
+    figure_3d_b = scene_figure(results, frame_b, view, focus, index) if split else no_update
 
     if pair:
         key = pair_key(pair)
@@ -970,7 +1029,7 @@ def update_views(run_id, pair, slider_index, view, frame, focus):
 
     readout = f"{epoch_plus_seconds(scenario.epoch_utc, current_time_s)} UTC  " \
               f"(+{current_time_s / crtbp.SECONDS_PER_DAY:.3f} d, {results['times_nondim'][index]:.4f} TU)"
-    return figure_3d, figure_series, readout
+    return figure_3d, figure_3d_b, figure_series, readout
 
 
 # --------------------------------------------------------------------------

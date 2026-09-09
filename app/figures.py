@@ -106,7 +106,7 @@ def camera_for(focus_point, lower, upper, ratio, zoom=1.3):
 
 def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, station_positions=None,
                       marker_states=None, manifolds=None, view="moon", frame_label="rotating frame",
-                      focus_point=None, focus_key="none", zoom=1.3):
+                      focus_point=None, focus_key="none", zoom=1.3, trail_samples=0):
     """
     3D view of trajectories with the Earth and Moon drawn to scale.
 
@@ -130,6 +130,8 @@ def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, st
                         Plotly's uirevision so a change of focus resets
                         the camera while slider moves keep it
     zoom              : eye distance as a fraction of the box when focusing
+    trail_samples     : if > 0, draw a brighter fading tail of this many
+                        samples behind each current-time marker
     """
     figure = go.Figure()
 
@@ -156,9 +158,22 @@ def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, st
     for k, (name, states) in enumerate(trajectories.items()):
         colors[name] = SPACECRAFT_COLORS[k % len(SPACECRAFT_COLORS)]
         shown = subsample(states)
+        full_width = 2.0 if trail_samples > 0 else 3.5
         figure.add_trace(go.Scatter3d(x=shown[:, 0], y=shown[:, 1], z=shown[:, 2],
-                                      mode="lines", name=name, line=dict(width=3.5, color=colors[name]),
+                                      mode="lines", name=name, line=dict(width=full_width, color=colors[name]),
+                                      opacity=0.55 if trail_samples > 0 else 1.0,
                                       hovertemplate=f"{name}<br>x %{{x:.4f}}<br>y %{{y:.4f}}<br>z %{{z:.4f}} LU<extra></extra>"))
+        if trail_samples > 0 and index > 1:
+            # A comet tail: the last trail_samples up to now, fading from
+            # transparent to the spacecraft colour.
+            start = max(0, index - trail_samples)
+            tail = states[start:index + 1, :3]
+            fade = np.linspace(0.0, 1.0, len(tail))
+            figure.add_trace(go.Scatter3d(x=tail[:, 0], y=tail[:, 1], z=tail[:, 2], mode="lines",
+                                          showlegend=False, hoverinfo="skip",
+                                          line=dict(width=6, color=fade,
+                                                    colorscale=[[0.0, "rgba(0,0,0,0)"], [1.0, colors[name]]],
+                                                    cmin=0.0, cmax=1.0)))
 
     body_paths = {"moon": REGOLITH, "earth": EARTHSHINE}
     for name in ("moon", "earth"):

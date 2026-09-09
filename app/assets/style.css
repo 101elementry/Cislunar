@@ -184,7 +184,9 @@ button.small { padding: 5px 10px; font-size: 12px; }
 .dash-options-list-option.selected { color: var(--earthshine) !important; }
 .dash-dropdown svg { fill: var(--text-secondary); stroke: var(--text-secondary); }
 .dash-dropdown.narrow { width: 150px; }
-.dash-dropdown.medium { width: 200px; }
+.dash-dropdown.medium { width: 176px; }
+.header-controls.split .status { display: none; }
+.header-controls.split .dash-dropdown.medium { width: 160px; }
 
 /* ---- main grid ------------------------------------------------------ */
 
@@ -403,3 +405,15 @@ button.small { padding: 5px 10px; font-size: 12px; }
   .topbar { flex-wrap: wrap; }
   .toggles { border-right: none; }
 }
+
+/* ---- scene split and playback --------------------------------------- */
+
+.scene-grid { display: grid; grid-template-columns: minmax(0, 1fr); height: 100%; }
+.scene-grid.split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.scene-grid .scene-b { display: none; }
+.scene-grid.split .scene-b { display: block; border-left: 1px solid var(--border); }
+.header-controls .dash-dropdown.scene-b { display: none; }
+.header-controls.split .dash-dropdown.scene-b { display: block; }
+button.play { min-width: 64px; }
+button.play.active { color: var(--earthshine); background: var(--earthshine-soft); border-color: var(--earthshine-line); }
+.dash-dropdown.speed { width: 150px; }
