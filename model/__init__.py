@@ -15,4 +15,5 @@ Modules
   runner    run_scenario: propagate every spacecraft, evaluate every
             observer-spacecraft pair, manifolds and coverage
   sweep     run a scenario across a range of one setting
+  ephemeris load data/de440_ephemeris.npz into the engine's Ephemeris
 """

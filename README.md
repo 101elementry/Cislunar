@@ -38,7 +38,7 @@ python scripts/sweep_min_elevation.py       # duty cycle against elevation cutof
 python scripts/compare_family_members.py    # observability along a family
 python scripts/manifold_transfers.py        # manifold branches ranked by closest approach
 python scripts/station_keeping_sweep.py     # delta-v per year against stability index
-python scripts/orbit_determination.py       # EKF from angle (and range) measurements
+python scripts/orbit_determination.py       # rung 2: batch, EKF, UKF and their consistency
 python scripts/geo_rendezvous.py            # GEO parking-orbit drift and two-burn rendezvous
 python scripts/elfo_drift.py                # how frozen a lunar frozen orbit stays
 python scripts/export_gmat.py               # GMAT script for a high-fidelity cross-check
@@ -70,6 +70,25 @@ rate; `engine/access.py` evaluates any list of them without knowing
 what they test and combines masks across observers for coverage.  Add
 a constraint by writing another factory and appending its result to
 the list (`runner.run_scenario` accepts `extra_constraints`).
+
+## The thesis ladder (THESIS_BRIEF.md)
+
+Angles-only orbit determination and manoeuvre detection of the 9:2
+NRHO from a Sydney telescope, with JPL DE440 for the sky
+(`data/de440_ephemeris.npz`, rebuilt by `scripts/fetch_ephemeris.py`).
+
+| Rung | Script | Output |
+|---|---|---|
+| 1 Simulated observations | `scripts/simulate_observations.py` | `output/observations.csv`, `fig7_observation_schedule.png` |
+| 2 Orbit determination | `scripts/orbit_determination.py`, `scripts/observability_sweep.py` | `od_consistency.csv`, `fig9`; `observability.csv`, `fig8` |
+| 3 Manoeuvre detection | `scripts/manoeuvre_detection.py` | `manoeuvre_detection.csv`, `fig10` |
+| 4 Manoeuvre estimation | `scripts/manoeuvre_estimation.py` | `manoeuvre_estimation.csv`, `fig11` |
+
+The estimation code is `engine/estimation.py` (measurement models with
+analytic Jacobians, batch least squares, EKF, UKF, NEES and NIS),
+`engine/observability.py` (Fisher information, Cramer-Rao bound) and
+`engine/detection.py` (burn injection, per-night innovation test,
+Monte Carlo minimum detectable burn, burn estimation).
 
 ## Relationship to GMAT
 

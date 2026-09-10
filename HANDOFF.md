@@ -1,7 +1,78 @@
-# Handoff (updated 9 Sep 2026, local session)
+# Handoff (updated 10 Sep 2026, local session)
 
 Branch: `claude/cislunar-crtbp-halo-orbits-aelm0l`. Everything described
-here is committed. Read `CLAUDE.md` first for the rules.
+here is committed. Read `CLAUDE.md` for the rules and `THESIS_BRIEF.md`
+for the goal; the section below records where each rung stands.
+
+## Thesis ladder: status and the numbers to defend
+
+All four rungs run end to end.  Sky model: JPL DE440 through
+`engine/ephemeris.py` (checked against jplephem to 3e-8 km); Earth
+orientation IAU 2006 sidereal time and precession, nutation omitted
+(under 20 arcsec, same model simulates and estimates).  Measurements:
+topocentric right ascension and declination, 2 arcsec Gaussian, every
+10 min inside the access windows the constraint model produces, member
+49 from the Sydney station of the example scenario, epoch 2026-01-01.
+
+**Rung 1, scripts/simulate_observations.py.**  One synodic month: 21
+windows, 11.1 % duty cycle, 476 measurements.  The old mean-longitude
+model gave 11.8 %; it differs from the ephemeris by up to 5 degrees
+because it took the Moon's orbit plane as the ecliptic.  Analytic
+RA/Dec Jacobian against central differences: worst relative error
+3.4e-9 over all measurements; both rows perpendicular to the line of
+sight.  Figure: output/fig7_observation_schedule.png.
+
+**Rung 2, scripts/orbit_determination.py and observability_sweep.py.**
+- Batch least squares (Gauss-Newton with backtracking; the arc grown in
+  four stages so a 100 km, 1 m/s guess converges across two perilune
+  passes): normalised residual rms 1.00, the noise-model check.
+- Cold start of the filters from the 100 km guess: EKF NEES 870 and
+  4.6 km, UKF NEES 71 and 1.7 km.  Warm start from a three-day batch
+  solution: both filters NEES 5.67 (band [4.2, 8.1]) and NIS 1.99
+  (band [1.0, 3.3]) for process noise 1e-9 to 1e-7 LU/TU^2, final error
+  1.07 km against a formal 1.17 km, and the EKF equals the UKF.
+  Conclusion to state: the perilune problem is an initialisation
+  problem; after initial orbit determination the EKF is adequate.
+  Process noise above 1e-6 makes the filters pessimistic.
+- Cramer-Rao position bound after one month, 1,000 km / 10 m/s prior:
+  0.9 to 3.1 km across the family (best near 32,000 km perilune, worst
+  at both ends); along the NRHO 2.6 km with the epoch at perilune, 0.7
+  to 1.1 km elsewhere.  Velocity bound rises from 0.01 to 2 m/s as the
+  perilune tightens.  Figure: output/fig8_observability.png.
+
+**Rung 3, scripts/manoeuvre_detection.py** (EKF, q = 1e-8, 8 trials
+per case, per-night chi-squared test at 1e-3 false alarm, along-track
+burns, 21 days).  Measured false alarm rate with no burn: 0.000.
+Smallest burn detected with probability 0.9:
+
+| burn at | resume after 1 night | 2 nights | 4 nights |
+|---|---|---|---|
+| perilune (day 6.56) | 0.87 m/s | 0.026 m/s | 0.087 m/s |
+| apolune (day 3.28) | 0.87 m/s | 0.85 m/s | 0.83 m/s |
+
+Read with care: the size grid is 0.01, 0.03, 0.1, 0.3, 1, 3 m/s and 8
+trials, so each entry is a bracket, not a measurement to two figures.
+The physics is right though: a perilune burn changes the period and
+its effect grows through the following passage, so waiting a night
+makes it far easier to see; an apolune burn moves the trajectory
+slowly and needs about 1 m/s whatever the gap.  The perilune
+non-monotonicity (2 nights better than 4) needs more trials and a
+finer grid before it is quoted; that is the first thing to do next.
+Figure: output/fig10_minimum_detectable_burn.png.
+
+**Rung 4, scripts/manoeuvre_estimation.py.**  A 0.2 m/s along-track
+burn at apolune: batch without a burn leaves rms 1.90 (the burn shows
+in the residuals); with the burn as three unknowns at a known epoch,
+estimate 0.205 m/s with 0.003 to 0.007 m/s one-sigma per axis, rms
+0.93; profiled over 11 candidate epochs across the gap, the epoch is
+recovered to 0.05 days.  Figure: output/fig11_burn_estimation.png.
+
+**Next steps, in order.**  (1) Rung 3 with 30+ trials and a finer size
+grid around each threshold; add radial and normal burn directions.
+(2) Repeat rung 3 with the UKF as a check that the EKF's linearisation
+is not what limits detection.  (3) A second station (Canberra DSN
+site) to show what range or a second angle baseline buys.  (4) Write
+up the initialisation finding of rung 2 as its own section.
 
 ## What exists and is verified
 
@@ -85,14 +156,15 @@ here is committed. Read `CLAUDE.md` first for the rules.
 
 ## Known gaps and limits
 
-1. Ephemeris-quality frames are still not done: the Sun and Moon use
-   the mean-longitude model (about a degree).  Replacing
-   `engine/frames.py` with a real ephemeris while keeping the function
-   signatures is the remaining roadmap item; the GMAT export exists so
-   the difference can be measured instead.
+1. Ephemeris-quality frames are done (DE440, see above); the fixed
+   length unit against the real Earth-Moon distance (356,800 to
+   406,700 km) is the remaining inconsistency of the CRTBP frame and
+   must be stated.  UT1 = UTC and no nutation are the other stated
+   approximations.
 2. Lunar oblateness and the 6.7 degree tilt of the Moon's equator are
    not modelled, so low lunar orbits look better behaved than reality.
-3. The EKF is optimistic (see above).
+3. The EKF is honest after a batch warm start (rung 2); cold-started
+   from 100 km it is not, and that is documented, not hidden.
 4. Manifold and station-keeping results depend on the displacement,
    node count and error settings; the defaults are documented in the
    docstrings and are tuned, not derived.

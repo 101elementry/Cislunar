@@ -15,7 +15,12 @@ Modules
                  families, mirroring for northern families
   manifolds      stable and unstable manifold branches of a periodic orbit
   stationkeeping impulsive targeting station keeping and its delta-v
-  estimation     measurement models and an extended Kalman filter
+  ephemeris      JPL DE440 Chebyshev evaluation, rotating-frame axes
+  estimation     RA/Dec and az/el models with analytic Jacobians, batch
+                 least squares, EKF, UKF, NEES and NIS
+  observability  Fisher information and the Cramer-Rao bound
+  detection      burn injection, per-night innovation test, Monte Carlo
+                 minimum detectable burn, burn estimation
   rendezvous     LVLH relative motion and two-impulse rendezvous
   kepler         two-body elements about the Moon or Earth <-> state
   frames         time, Sun direction, Earth rotation, station positions,

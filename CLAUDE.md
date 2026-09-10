@@ -9,8 +9,8 @@ line in an examination, so clarity beats cleverness everywhere.
 - `engine/`  pure analysis. numpy arrays and plain values in and out.
   No file IO, no plotting, no Dash, no imports from `model/` or `app/`.
   Modules: crtbp, corrector, families, manifolds, stationkeeping,
-  estimation, rendezvous, kepler, frames, propagation, geometry,
-  photometry, constraints, access.
+  ephemeris, estimation, observability, detection, rendezvous, kepler,
+  frames, propagation, geometry, photometry, constraints, access.
 - `model/`   scenario dataclasses, JSON serialisation, family file
   loading, `orbits` (a Spacecraft to a state, correction to periodic),
   `runner.run_scenario` which maps a Scenario onto engine calls, and
@@ -33,8 +33,10 @@ must print nothing.
 - Write expressions out in full rather than abbreviated intermediates.
 - Comment the physics, not the syntax.
 - Docstrings state what a function does and its units.
-- Dependencies: numpy, scipy, matplotlib (root scripts), plotly, dash.
-  Nothing else without asking.
+- Dependencies (requirements.txt): numpy, scipy, matplotlib, plotly,
+  dash; jplephem only for scripts/fetch_ephemeris.py.  The engine
+  stays numpy and scipy.  The owner has said further dependencies are
+  fine when they earn their place; keep them out of the engine.
 - Constraints are pluggable: any `f(StepGeometry) -> bool` with `.name`
   and `.kind` attributes; `engine/access.py` must stay agnostic.
 - Interface: a dark instrument console (see `app/assets/style.css`
@@ -62,6 +64,14 @@ must print nothing.
   or "earth equator").
 - Inertial frames for display are aligned with the rotating axes at
   t = 0; `engine.frames.rotating_to_inertial_states`.
+- Sky model: with `data/de440_ephemeris.npz` present (committed;
+  rebuild with `python scripts/fetch_ephemeris.py`) every sky function
+  in `engine/frames.py` uses JPL DE440 through the optional `ephemeris`
+  argument; without it the mean-longitude model.  Thesis results use
+  the ephemeris.  Times: UTC in, TDB = UTC + 69.184 s inside.
+- Thesis (THESIS_BRIEF.md): angles-only OD and manoeuvre detection of
+  the NRHO from Sydney.  Filters are warm-started from a batch solve
+  of the first nights; the honest process noise is <= 1e-7 LU/TU^2.
 
 ## Commands
 
@@ -72,6 +82,12 @@ python build_families.py                    # other families (~10 s)
 python plots.py                             # thesis figures
 python -m app.main                          # GUI at http://127.0.0.1:8050
 python scripts/<example>.py                 # see README for the list
+python scripts/fetch_ephemeris.py           # rebuild data/de440_ephemeris.npz (downloads 32 MB once)
+python scripts/simulate_observations.py     # rung 1
+python scripts/orbit_determination.py       # rung 2 (filters, consistency)
+python scripts/observability_sweep.py       # rung 2 (Cramer-Rao bound)
+python scripts/manoeuvre_detection.py       # rung 3 (about 15 minutes)
+python scripts/manoeuvre_estimation.py      # rung 4
 ```
 
 Read `HANDOFF.md` for the state of the work and the agreed next steps.
