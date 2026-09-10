@@ -13,17 +13,17 @@ import numpy as np
 from engine import corrector, crtbp, frames, kepler
 
 
-def plane_rotation_for(spacecraft, epoch_jd):
+def plane_rotation_for(spacecraft, epoch_jd, ephemeris=None):
     """
     Rotation from the frame the spacecraft's elements are quoted in to
     the rotating frame, or None for the Moon's orbit plane (identity).
     """
     if spacecraft.reference_plane == "earth equator":
-        return frames.equatorial_to_rotating_matrix(epoch_jd)
+        return frames.equatorial_to_rotating_matrix(epoch_jd, ephemeris)
     return None
 
 
-def initial_state(spacecraft, families, epoch_jd):
+def initial_state(spacecraft, families, epoch_jd, ephemeris=None):
     """
     Rotating-frame initial state (6,) of a Spacecraft at scenario time
     zero, whatever its source.
@@ -41,7 +41,7 @@ def initial_state(spacecraft, families, epoch_jd):
         return kepler.keplerian_to_state_rotating(
             float(elements["a_km"]), float(elements["e"]), float(elements["i_deg"]),
             float(elements["raan_deg"]), float(elements["argp_deg"]), float(elements["true_anomaly_deg"]),
-            centre=spacecraft.centre, plane_rotation=plane_rotation_for(spacecraft, epoch_jd))
+            centre=spacecraft.centre, plane_rotation=plane_rotation_for(spacecraft, epoch_jd, ephemeris))
     return np.array(spacecraft.initial_state, dtype=float)
 
 

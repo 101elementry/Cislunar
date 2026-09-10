@@ -125,7 +125,7 @@ def in_cylindrical_shadow(positions, sun_direction, body_position, body_radius):
 # --------------------------------------------------------------------------
 
 def observation_geometry(station_latitude_deg, station_longitude_deg, station_altitude_km,
-                         spacecraft_states, times_s, jd, diameter_m, albedo, mu=crtbp.MU):
+                         spacecraft_states, times_s, jd, diameter_m, albedo, mu=crtbp.MU, ephemeris=None):
     """
     Geometry of one ground station observing one spacecraft over a grid.
 
@@ -133,13 +133,15 @@ def observation_geometry(station_latitude_deg, station_longitude_deg, station_al
     times_s           : (n,) seconds past the epoch (carried through)
     jd                : (n,) Julian dates of the grid
     diameter_m, albedo: diffuse-sphere parameters for the magnitude
+    ephemeris         : optional engine.ephemeris.Ephemeris for the real
+                        Sun, Moon and Earth orientation (see frames.py)
 
     Returns a GeometrySeries.
     """
     points = propagation.fixed_points(mu)
-    sun_direction = frames.sun_direction_rotating(jd)
+    sun_direction = frames.sun_direction_rotating(jd, ephemeris)
     station_position, station_up = frames.station_position_rotating(
-        station_latitude_deg, station_longitude_deg, station_altitude_km, jd)
+        station_latitude_deg, station_longitude_deg, station_altitude_km, jd, ephemeris)
 
     positions = spacecraft_states[:, :3]
     line_of_sight_unit, range_nd = unit_vectors(positions - station_position)

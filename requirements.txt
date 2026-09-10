@@ -1,0 +1,6 @@
+numpy
+scipy
+matplotlib
+plotly
+dash
+jplephem   # only for scripts/fetch_ephemeris.py

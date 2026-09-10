@@ -29,7 +29,7 @@ def as_families(family_or_families):
     return {DEFAULT_FAMILY_NAME: family_or_families}
 
 
-def spacecraft_trajectory(spacecraft, times_nondim, families=None, epoch_jd=None):
+def spacecraft_trajectory(spacecraft, times_nondim, families=None, epoch_jd=None, ephemeris=None):
     """
     (n, 6) rotating-frame states for one Spacecraft on the grid.
 
@@ -38,21 +38,21 @@ def spacecraft_trajectory(spacecraft, times_nondim, families=None, epoch_jd=None
     known period; otherwise the state is integrated.
     """
     families = as_families(families)
-    state0 = orbits.initial_state(spacecraft, families, epoch_jd)
+    state0 = orbits.initial_state(spacecraft, families, epoch_jd, ephemeris)
     period = orbits.period(spacecraft, families)
     if spacecraft.propagation == "periodic" and period is not None:
         return propagation.propagate_periodic(state0, period, times_nondim)
     return propagation.propagate_state(state0, times_nondim)
 
 
-def spacecraft_manifolds(spacecraft, families, epoch_jd):
+def spacecraft_manifolds(spacecraft, families, epoch_jd, ephemeris=None):
     """
     Manifold branches asked for by a periodic spacecraft, as
     {"unstable": [...], "stable": [...]} (either may be missing).
     A linearly stable orbit has none; the engine's ValueError is turned
     into an empty result so the run does not fail.
     """
-    orbit = {"state0": orbits.initial_state(spacecraft, families, epoch_jd),
+    orbit = {"state0": orbits.initial_state(spacecraft, families, epoch_jd, ephemeris),
              "period": orbits.period(spacecraft, families)}
     duration = crtbp.time_to_nondim(spacecraft.manifold_time_days * crtbp.SECONDS_PER_DAY)
     kinds = ["unstable", "stable"] if spacecraft.manifolds == "both" else [spacecraft.manifolds]
@@ -100,7 +100,7 @@ def observers(scenario):
     return result
 
 
-def run_scenario(scenario, families=None, extra_constraints=None):
+def run_scenario(scenario, families=None, extra_constraints=None, ephemeris=None):
     """
     Propagate every spacecraft and evaluate every observer-spacecraft
     pair.
@@ -110,6 +110,9 @@ def run_scenario(scenario, families=None, extra_constraints=None):
                         as the L2 southern halo family)
     extra_constraints : optional list of additional constraint functions
                         (see engine/constraints.py) applied to every pair.
+    ephemeris         : optional engine.ephemeris.Ephemeris (from
+                        model.ephemeris.load_ephemeris); None uses the
+                        mean-longitude sky model
 
     Returns a dictionary
       times_s, times_nondim, jd : (n,) grid arrays
@@ -139,14 +142,14 @@ def run_scenario(scenario, families=None, extra_constraints=None):
     trajectories = {}
     manifold_branches = {}
     for spacecraft in scenario.spacecraft:
-        trajectories[spacecraft.name] = spacecraft_trajectory(spacecraft, times_nondim, families, jd[0])
+        trajectories[spacecraft.name] = spacecraft_trajectory(spacecraft, times_nondim, families, jd[0], ephemeris)
         if spacecraft.manifolds != "none" and orbits.period(spacecraft, families) is not None:
-            manifold_branches[spacecraft.name] = spacecraft_manifolds(spacecraft, families, jd[0])
+            manifold_branches[spacecraft.name] = spacecraft_manifolds(spacecraft, families, jd[0], ephemeris)
 
     stations = {}
     for station in scenario.ground_stations:
         position, _ = frames.station_position_rotating(
-            station.latitude_deg, station.longitude_deg, station.altitude_km, jd)
+            station.latitude_deg, station.longitude_deg, station.altitude_km, jd, ephemeris)
         stations[station.name] = position
 
     observations = {}
@@ -159,7 +162,7 @@ def run_scenario(scenario, families=None, extra_constraints=None):
             series = geometry.observation_geometry(
                 station.latitude_deg, station.longitude_deg, station.altitude_km,
                 trajectories[spacecraft.name], times_s, jd,
-                spacecraft.diameter_m, spacecraft.albedo)
+                spacecraft.diameter_m, spacecraft.albedo, ephemeris=ephemeris)
             masks = access.evaluate_constraints(series, constraint_list)
             passed = np.all(masks, axis=1) if masks.shape[1] > 0 else np.ones(len(series), dtype=bool)
             observations[key] = {"geometry": series,
@@ -186,6 +189,7 @@ def run_scenario(scenario, families=None, extra_constraints=None):
     return {"times_s": times_s,
             "times_nondim": times_nondim,
             "jd": jd,
+            "sky_model": "JPL DE440" if ephemeris is not None else "mean-longitude model",
             "trajectories": trajectories,
             "manifolds": manifold_branches,
             "coverage": coverage,

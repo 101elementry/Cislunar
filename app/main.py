@@ -26,6 +26,7 @@ from dash import Dash, dcc, html, dash_table, Input, Output, State, ALL, Clients
 from engine import crtbp, frames, propagation
 from model import orbits, runner, sweep
 from model.family import load_families, nearest_member, member_label, DEFAULT_FAMILY_NAME
+from model.ephemeris import load_ephemeris
 from model.scenario import (Scenario, Spacecraft, GroundStation, OpticalSensor, example_scenario,
                             ELEMENT_PRESETS)
 from app import figures
@@ -37,6 +38,7 @@ dash_app = Dash(__name__, title="Cislunar mission tool", suppress_callback_excep
 # browser only holds the run id.
 RESULTS = {}
 FAMILIES = load_families()
+EPHEMERIS = load_ephemeris()
 FAMILY_NAMES = list(FAMILIES.keys())
 FAMILY_LABELS = {name: [member_label(index, orbit) for index, orbit in enumerate(family)]
                  for name, family in FAMILIES.items()}
@@ -839,7 +841,7 @@ def run_analysis(n_clicks, scenario_data, current_pair, selected, prop_values, p
         selected = obj.name
 
     started = time.perf_counter()
-    results = runner.run_scenario(scenario, FAMILIES)
+    results = runner.run_scenario(scenario, FAMILIES, ephemeris=EPHEMERIS)
     elapsed = time.perf_counter() - started
 
     run_id = str(uuid.uuid4())
@@ -859,7 +861,7 @@ def run_analysis(n_clicks, scenario_data, current_pair, selected, prop_values, p
         if index < n_samples:
             marks[index] = f"{day} d"
 
-    status = f"{n_samples:,} samples · {len(scenario.spacecraft)} spacecraft · {elapsed:.1f} s"
+    status = f"{n_samples:,} samples · {len(scenario.spacecraft)} spacecraft · {elapsed:.1f} s · {results['sky_model']}"
     return (run_id, status, options, pair, n_samples - 1, marks, 0,
             scenario.to_dict() if scenario_changed else no_update,
             selected if scenario_changed else no_update)
