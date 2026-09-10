@@ -577,3 +577,31 @@ def chi_squared_bounds(degrees_of_freedom, n_runs=1, probability=0.95):
     lower = chi2.ppf((1.0 - probability) / 2.0, degrees_of_freedom * n_runs) / n_runs
     upper = chi2.ppf(1.0 - (1.0 - probability) / 2.0, degrees_of_freedom * n_runs) / n_runs
     return lower, upper
+
+
+def batch_least_squares_growing_arc(initial_state, measurements, prior_covariance=None, stages=4, mu=MU, verbose=False):
+    """
+    Batch least squares that earns its convergence: the arc is grown
+    in stages.  The first solve uses only the earliest fraction of the
+    measurements, where the trajectory is nearly linear in the epoch
+    state, and each later stage doubles the arc and starts from the
+    previous solution.  A rough first guess (100 km, 1 m/s) that leaves
+    the plain solver creeping across a perilune passage converges this
+    way in a handful of iterations per stage.  Returns the final stage's
+    result (see batch_least_squares).
+    """
+    ordered = sorted(measurements, key=lambda m: m["time_nondim"])
+    t_final = ordered[-1]["time_nondim"]
+    state = np.array(initial_state, dtype=float)
+    result = None
+    for stage in range(stages):
+        cut = t_final / 2.0 ** (stages - 1 - stage)
+        subset = [m for m in ordered if m["time_nondim"] <= cut]
+        if len(subset) < 4:
+            continue
+        if verbose:
+            print(f"  arc stage {stage + 1}/{stages}: {len(subset)} measurements to t = {cut:.3f} TU")
+        result = batch_least_squares(state, subset, prior_covariance=prior_covariance, iterations=15, mu=mu,
+                                     verbose=verbose)
+        state = result["state"]
+    return result
