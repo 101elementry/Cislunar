@@ -114,14 +114,15 @@ up the initialisation finding of rung 2 as its own section.
   5 m/s per year with one node per revolution; the largest halo needs
   four nodes per revolution (about 8 m/s per year) and diverges with
   one.
-- `engine/estimation.py`: azimuth/elevation and range/range-rate
-  models, central-difference measurement Jacobians, EKF with STM
-  covariance propagation (Joseph form).  Angles-only from one station:
-  100 km initial error to about 8 km after 14 days, but the formal
-  sigma (1.2 km) is optimistic because range along the line of sight is
-  weakly observed; adding range brings the error to 0.5 km (formal 0.1
-  km, still optimistic by a few).  A UKF or better process-noise tuning
-  is the natural next step; say this in the thesis.
+- `engine/estimation.py`: RA/Dec, azimuth/elevation and range/range-
+  rate models with analytic Jacobians (central differences kept as the
+  check), batch least squares with backtracking and a growing arc, EKF
+  (Joseph form) and UKF, NEES and NIS with chi-squared bounds.  See the
+  thesis ladder above for the numbers; the earlier "optimistic EKF"
+  finding was a cold-start effect and is resolved by the batch warm
+  start.  `engine/observability.py` (Fisher information, Cramer-Rao)
+  and `engine/detection.py` (burn injection, per-night innovation
+  test, minimum detectable burn, burn estimation) sit beside it.
 - `engine/rendezvous.py`: LVLH relative motion with the frame rotation
   removed (Clohessy-Wiltshire sense), two-impulse rendezvous by STM
   targeting, transfer-time sweep.  GEO example: 50 km lower orbit
