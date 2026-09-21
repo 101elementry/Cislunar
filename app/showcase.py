@@ -551,6 +551,9 @@ def page_shell(title, description, body, extra_head="", scripts=""):
 <meta name="description" content="{html.escape(description)}">
 <link rel="stylesheet" href="assets/showcase.css">
 {extra_head}
+<!-- Vercel Web Analytics: page views by country and device, no cookies.
+     Only counts once Analytics is switched on for the project. -->
+<script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
 {body}
