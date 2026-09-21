@@ -1,0 +1,6 @@
+# Vercel serves the prebuilt static pages in site/ and nothing else.
+# Without this it finds requirements.txt and app/main.py, tries to build
+# the Dash interface as a serverless Python function, and fails.
+/*
+!/site
+!/vercel.json
