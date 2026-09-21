@@ -44,8 +44,8 @@ FAMILY_NAMES = list(FAMILIES.keys())
 FAMILY_LABELS = {name: [member_label(index, orbit) for index, orbit in enumerate(family)]
                  for name, family in FAMILIES.items()}
 
-TABLE_HEADER = {"backgroundColor": "#0e121b", "color": "#66718a", "fontWeight": "600", "border": "1px solid #232b3a"}
-TABLE_DATA = {"backgroundColor": "#121722", "color": "#e7eaf0", "border": "1px solid #232b3a"}
+TABLE_HEADER = {"backgroundColor": "#0c0c0c", "color": "#6e6e6e", "fontWeight": "500", "border": "1px solid #1e1e1e"}
+TABLE_DATA = {"backgroundColor": "#070707", "color": "#f2f2f2", "border": "1px solid #1e1e1e"}
 
 TREE_GLYPH = {"spacecraft": ("◆", "glyph-spacecraft"),
               "ground_station": ("▲", "glyph-station"),

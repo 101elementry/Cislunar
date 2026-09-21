@@ -21,7 +21,8 @@
   var playing = false;
 
   function control(play, sliderValue) {
-    return window.dash_clientside.playback.control(play, parseFloat(speedSelect.value), sliderValue);
+    var speed = speedSelect ? parseFloat(speedSelect.value) : 12.0;
+    return window.dash_clientside.playback.control(play, speed, sliderValue);
   }
 
   // True if the time of this sample falls inside an access window.
@@ -52,13 +53,15 @@
   function setPlaying(next) {
     if (next === playing) { return; }
     playing = next;
-    playButton.textContent = playing ? "Pause" : "Play";
-    playButton.classList.toggle("playing", playing);
+    if (playButton) {
+      playButton.textContent = playing ? "Pause" : "Play";
+      playButton.classList.toggle("playing", playing);
+    }
     if (playing) {
-      control(true, parseInt(scrubber.value, 10));
+      control(true, scrubber ? parseInt(scrubber.value, 10) : 0);
     } else {
       var reached = control(false, 0);
-      if (typeof reached === "number") { scrubber.value = reached; showSample(reached); }
+      if (typeof reached === "number") { if (scrubber) { scrubber.value = reached; } showSample(reached); }
     }
   }
 
@@ -67,20 +70,39 @@
   function follow() {
     if (playing) {
       var index = window.cislunarPlayback.state.index;
-      scrubber.value = Math.round(index);
+      if (scrubber) { scrubber.value = Math.round(index); }
       showAccess(index);
     }
     window.requestAnimationFrame(follow);
   }
 
-  playButton.addEventListener("click", function () { setPlaying(!playing); });
-  speedSelect.addEventListener("change", function () { if (playing) { control(true, 0); } });
-  scrubber.addEventListener("input", function () {
-    var index = parseInt(scrubber.value, 10);
-    if (playing) { window.cislunarPlayback.state.index = index; } else { showSample(index); }
-  });
+  // The index page has a scene but no controls, so each is optional.
+  if (playButton) { playButton.addEventListener("click", function () { setPlaying(!playing); }); }
+  if (speedSelect) { speedSelect.addEventListener("change", function () { if (playing) { control(true, 0); } }); }
+  if (scrubber) {
+    scrubber.addEventListener("input", function () {
+      var index = parseInt(scrubber.value, 10);
+      if (playing) { window.cislunarPlayback.state.index = index; } else { showSample(index); }
+    });
+  }
   document.addEventListener("keydown", function (event) {
     if (event.code === "Space" && event.target === document.body) { event.preventDefault(); setPlaying(!playing); }
+  });
+
+  // A scene as wide as the page would swallow every scroll of the page
+  // as a zoom.  The wheel is let through to the page until the visitor
+  // clicks into a scene, and again once the pointer leaves it.  Stopping
+  // the event here, in the capture phase on the scene's holder, keeps it
+  // from both Plotly and zoom_to_cursor.js without cancelling the scroll.
+  holders.forEach(function (id) {
+    var holder = document.getElementById(id);
+    if (!holder) { return; }
+    var engaged = false;
+    holder.addEventListener("pointerdown", function () { engaged = true; });
+    holder.addEventListener("pointerleave", function () { engaged = false; });
+    holder.addEventListener("wheel", function (event) {
+      if (!engaged) { event.stopPropagation(); }
+    }, {capture: true, passive: true});
   });
 
   var drawn = page.figures.map(function (figure, k) {

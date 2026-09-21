@@ -21,21 +21,21 @@ def subsample(array, max_points=MAX_PLOT_POINTS):
 
 
 # Palette shared with assets/style.css.
-GROUND = "#0b0e14"
-PANEL = "#121722"
-GRID = "#232b3a"
-TEXT = "#e7eaf0"
-TEXT_SECONDARY = "#9aa4b5"
-TEXT_MUTED = "#66718a"
-EARTHSHINE = "#6fb1ff"
-SUN = "#f5c451"
-REGOLITH = "#d9d3c4"
-UNSTABLE = "#ff6b57"
-STABLE = "#43d19a"
+GROUND = "#000000"
+PANEL = "#070707"
+GRID = "#1c1c1c"
+TEXT = "#f2f2f2"
+TEXT_SECONDARY = "#a3a3a3"
+TEXT_MUTED = "#6e6e6e"
+EARTHSHINE = "#7fb2e5"
+SUN = "#e8b84a"
+REGOLITH = "#d6d2c8"
+UNSTABLE = "#e5604d"
+STABLE = "#3ecf8e"
 
 # One colour per spacecraft, earthshine first, then hues that stay apart
 # from the manifold red and green and the station gold.
-SPACECRAFT_COLORS = ["#6fb1ff", "#c792ea", "#f78fb3", "#7fdbff", "#ffd166", "#b8e986", "#ff9f6b", "#9ab0ff"]
+SPACECRAFT_COLORS = ["#7fb2e5", "#b79ad6", "#de8fa8", "#7cc7c9", "#e3c16f", "#a9cf85", "#e39a6b", "#93a3d9"]
 
 BODY_SHADING = {"moon": [[0.0, "#3a3a38"], [0.55, "#8f8d86"], [1.0, "#e8e4d8"]],
                 "earth": [[0.0, "#0c2a5e"], [0.6, "#2d6fd0"], [1.0, "#9fd0ff"]]}
@@ -63,12 +63,14 @@ def sphere_surface(centre, radius, name, body, resolution=28):
                       opacity=1.0)
 
 
-SCENE_AXIS = dict(backgroundcolor=GROUND, gridcolor=GRID, zerolinecolor=GRID, showbackground=True,
-                  color=TEXT_MUTED, tickfont=dict(size=10, family="IBM Plex Mono, Menlo, monospace"),
-                  title_font=dict(size=11, color=TEXT_SECONDARY))
+# No axis walls: the scene is a black void with a faint grid, like the
+# orbit viewers operators use, so the trajectories carry the picture.
+SCENE_AXIS = dict(backgroundcolor=GROUND, gridcolor=GRID, zerolinecolor="#2c2c2c", showbackground=False,
+                  color=TEXT_MUTED, tickfont=dict(size=9, family="IBM Plex Mono, Menlo, monospace"),
+                  title_font=dict(size=10, color=TEXT_MUTED))
 
 
-MANIFOLD_COLORS = {"unstable": "rgba(255, 107, 87, 0.5)", "stable": "rgba(67, 209, 154, 0.5)"}
+MANIFOLD_COLORS = {"unstable": "rgba(229, 96, 77, 0.5)", "stable": "rgba(62, 207, 142, 0.5)"}
 
 
 def view_window(points, margin_fraction=0.08):
@@ -263,13 +265,13 @@ def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, st
                    aspectratio=dict(x=ratio[0], y=ratio[1], z=ratio[2]),
                    dragmode="turntable",
                    camera=camera),
-        paper_bgcolor=PANEL, plot_bgcolor=PANEL,
-        font=dict(family="IBM Plex Sans, -apple-system, Segoe UI, sans-serif", color=TEXT_SECONDARY, size=12),
+        paper_bgcolor=GROUND, plot_bgcolor=GROUND,
+        font=dict(family="Inter, -apple-system, Segoe UI, sans-serif", color=TEXT_SECONDARY, size=12),
         margin=dict(l=0, r=0, t=34, b=0),
         legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0, bgcolor="rgba(0,0,0,0)",
                     font=dict(size=11, color=TEXT_SECONDARY)),
-        hoverlabel=dict(bgcolor="#171d2a", bordercolor=GRID, font=dict(family="IBM Plex Mono, Menlo, monospace",
-                                                                         color=TEXT, size=11)),
+        hoverlabel=dict(bgcolor="#111111", bordercolor="#303030", font=dict(family="IBM Plex Mono, Menlo, monospace",
+                                                                            color=TEXT, size=11)),
         uirevision=f"{view}-{frame_label}-{focus_key}",
         meta=dict(clock or {}, index=int(index)))
     return figure
@@ -284,9 +286,9 @@ SERIES_ORANGE = SUN
 SERIES_AQUA = STABLE
 
 PLOT_LAYOUT = dict(template="plotly_dark",
-                   font=dict(family="IBM Plex Sans, -apple-system, Segoe UI, sans-serif", size=12, color=TEXT_SECONDARY),
+                   font=dict(family="Inter, -apple-system, Segoe UI, sans-serif", size=12, color=TEXT_SECONDARY),
                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                   hoverlabel=dict(bgcolor="#171d2a", bordercolor=GRID,
+                   hoverlabel=dict(bgcolor="#111111", bordercolor="#303030",
                                    font=dict(family="IBM Plex Mono, Menlo, monospace", color=TEXT, size=11)))
 
 

@@ -211,8 +211,8 @@ def scene_sydney_tracking():
                 "taken from the JPL DE440 ephemeris.",
                 "The strip below the scene shows elevation, brightness and separation from the Moon. The green "
                 "bands are the access windows, the only times a measurement can be taken. An orbit "
-                "determination filter has to work with these sparse windows and nothing else, and that is "
-                "the problem my thesis work is aimed at."],
+                "determination filter has to work with these sparse windows and nothing else, which is the "
+                "problem the estimation part of this work addresses."],
             "look_for": [
                 "The access light beside the clock turns green when Sydney can observe the spacecraft.",
                 "Around new Moon there are no windows for several nights, because the Moon is up only in "
@@ -321,6 +321,18 @@ def thumbnail_svg(trajectories, manifolds, bodies, body_radii, size=(320, 200)):
     return "".join(parts)
 
 
+TOPBAR = """<header class="topbar">
+  <a class="brand" href="index.html">Cislunar</a>
+  <nav class="nav"><a href="index.html#scenes">Scenes</a><a href="index.html#method">Method</a></nav>
+</header>"""
+
+FOOTER = (f'<footer class="footer"><span>{html.escape(AUTHOR)}. {html.escape(AUTHOR_LINE)}.</span>'
+          '<span>Computed with Python, numpy and scipy. Sun and Moon from JPL DE440.</span></footer>')
+
+PAGE_SCRIPTS = (f'<script src="{PLOTLY_SCRIPT}"></script>\n<script src="assets/playback.js"></script>\n'
+                '<script src="assets/zoom_to_cursor.js"></script>\n<script src="assets/showcase.js"></script>')
+
+
 def page_shell(title, description, body, extra_head="", scripts=""):
     """The HTML document around a page body."""
     return f"""<!DOCTYPE html>
@@ -341,8 +353,8 @@ def page_shell(title, description, body, extra_head="", scripts=""):
 """
 
 
-def scene_page(spec, results, neighbours):
-    """HTML of one scene page."""
+def scene_page(spec, results, neighbours, number):
+    """HTML of one scene page; number is its place in the list, from 1."""
     scenario = spec["scenario"]
     scene_figures = [scene_figure(scenario, results, frame, view, focus, 0) for frame, view, focus in spec["views"]]
     for figure in scene_figures:
@@ -377,35 +389,30 @@ def scene_page(spec, results, neighbours):
                        f'<div id="{holders[k]}" class="holder"><div class="plot"></div></div></figure>')
 
     paragraphs = "".join(f"<p>{html.escape(text)}</p>" for text in spec["paragraphs"])
-    look_for = "".join(f"<li>{html.escape(text)}</li>" for text in spec["look_for"])
+    look_for = "".join(f"<li><span>{html.escape(text)}</span></li>" for text in spec["look_for"])
     facts = "".join(f"<tr><th>{html.escape(label)}</th><td>{html.escape(value)}</td></tr>"
                     for label, value in spec["facts"](results))
     previous_spec, next_spec = neighbours
     body = f"""
-<header class="topbar">
-  <a class="brand" href="index.html"><span class="brand-mark"></span>Cislunar</a>
-  <nav class="pager">
-    <a href="{previous_spec['slug']}.html" aria-label="Previous scene">&larr;</a>
-    <a href="index.html">All scenes</a>
-    <a href="{next_spec['slug']}.html" aria-label="Next scene">&rarr;</a>
-  </nav>
-</header>
-<main class="scene-page">
-  <section class="intro">
-    <p class="kicker">{html.escape(spec['kicker'])}</p>
-    <h1>{html.escape(spec['title'])}</h1>
+{TOPBAR}
+<main>
+  <section class="scene-head">
+    <div>
+      <p class="label">{number:02d} / {html.escape(spec['kicker'])}</p>
+      <h1>{html.escape(spec['title'])}</h1>
+    </div>
     <p class="tagline">{html.escape(spec['tagline'])}</p>
   </section>
   <section class="{stage_class}">{views_html}</section>
   <section class="transport">
     <button id="play-button" class="play" type="button">Play</button>
-    <label class="speed">Speed
+    <label class="speed"><span class="label">Rate</span>
       <select id="play-speed">
-        <option value="2">2 h per second</option>
-        <option value="6">6 h per second</option>
-        <option value="12" selected>12 h per second</option>
-        <option value="24">1 d per second</option>
-        <option value="72">3 d per second</option>
+        <option value="2">2 h / s</option>
+        <option value="6">6 h / s</option>
+        <option value="12" selected>12 h / s</option>
+        <option value="24">1 d / s</option>
+        <option value="72">3 d / s</option>
       </select>
     </label>
     <input id="scrubber" type="range" min="0" max="{page_data['n_samples'] - 1}" value="0" step="1"
@@ -415,70 +422,83 @@ def scene_page(spec, results, neighbours):
   </section>
   {series_block}
   <section class="notes">
-    <div class="prose"><h2>What you are looking at</h2>{paragraphs}</div>
+    <div class="prose"><p class="label">Overview</p>{paragraphs}</div>
     <div class="side">
-      <h2>Things to look for</h2><ul>{look_for}</ul>
-      <h2>Numbers</h2><table class="facts">{facts}</table>
-      <p class="hint">Drag to rotate. Scroll over an orbit to zoom toward it. Click a legend entry to hide it.</p>
+      <p class="label">What to look for</p><ol class="look-for">{look_for}</ol>
+      <p class="label">Values from this run</p><table class="facts">{facts}</table>
+      <p class="hint">Drag to rotate. Click a scene, then scroll over an orbit to zoom toward it. Click a legend entry to hide it.</p>
     </div>
   </section>
+  <nav class="pager">
+    <a href="{previous_spec['slug']}.html"><span class="label">Previous</span>
+      <span class="pager-title">{html.escape(previous_spec['title'])}</span></a>
+    <a href="{next_spec['slug']}.html"><span class="label">Next</span>
+      <span class="pager-title">{html.escape(next_spec['title'])}</span></a>
+  </nav>
 </main>
-<footer class="footer">{html.escape(AUTHOR)}. {html.escape(AUTHOR_LINE)}.</footer>
+{FOOTER}
 <script type="application/json" id="page-data">{embedded_json(page_data)}</script>
 """
-    scripts = (f'<script src="{PLOTLY_SCRIPT}"></script>\n<script src="assets/playback.js"></script>\n'
-               '<script src="assets/zoom_to_cursor.js"></script>\n<script src="assets/showcase.js"></script>')
-    return page_shell(f"{spec['title']} | Cislunar", spec["tagline"], body, scripts=scripts)
+    return page_shell(f"{spec['title']} | Cislunar", spec["tagline"], body, scripts=PAGE_SCRIPTS)
 
 
-def index_page(cards):
-    """HTML of the landing page; cards is a list of (spec, thumbnail svg)."""
-    cards_html = ""
-    for spec, thumbnail in cards:
-        cards_html += f"""
-    <a class="card" href="{spec['slug']}.html">
-      <div class="thumb">{thumbnail}</div>
-      <p class="kicker">{html.escape(spec['kicker'])}</p>
-      <h2>{html.escape(spec['title'])}</h2>
-      <p>{html.escape(spec['tagline'])}</p>
+def index_page(cards, hero_data):
+    """
+    HTML of the landing page.  cards is a list of (spec, thumbnail svg);
+    hero_data is the page data of the scene that plays behind the title.
+    """
+    rows_html = ""
+    for k, (spec, thumbnail) in enumerate(cards):
+        rows_html += f"""
+    <a class="scene-row" href="{spec['slug']}.html">
+      <span class="scene-number">{k + 1:02d}</span>
+      <span><span class="label">{html.escape(spec['kicker'])}</span>
+        <span class="scene-title" style="display:block">{html.escape(spec['title'])}</span></span>
+      <p class="scene-tagline">{html.escape(spec['tagline'])}</p>
+      <span class="thumb">{thumbnail}</span>
     </a>"""
     body = f"""
-<header class="topbar">
-  <a class="brand" href="index.html"><span class="brand-mark"></span>Cislunar</a>
-</header>
-<main class="index-page">
+{TOPBAR}
+<main>
   <section class="hero">
-    <p class="kicker">Earth-Moon three-body dynamics</p>
-    <h1>Orbits that only exist because there are two bodies.</h1>
-    <p class="lede">Near the Moon a spacecraft feels the Earth and the Moon at once, and the familiar ellipses of
-    two-body orbits give way to halo orbits, near rectilinear halo orbits and distant retrograde orbits. These
-    scenes come from a mission analysis tool I wrote in Python for my undergraduate thesis. Every scene is
-    interactive. Press play, drag to rotate, and scroll over an orbit to zoom toward it.</p>
+    <div id="view-3d" class="holder"><div class="plot"></div></div>
+    <div class="hero-text">
+      <p class="label">Earth-Moon three-body problem</p>
+      <h1>Cislunar trajectory analysis</h1>
+      <p>Periodic orbits, natural transport and optical tracking near the Moon, computed from first principles.
+      Undergraduate thesis software, University of Sydney.</p>
+    </div>
+    <div class="hero-clock"><span class="label">L2 southern halo family, rotating frame</span>
+      <span id="time-readout" class="readout"></span></div>
   </section>
-  <section class="cards">{cards_html}
+  <section class="section" id="scenes">
+    <div class="section-head"><p class="label">Scenes</p><p class="label">{len(cards):02d} interactive</p></div>
+    <div class="scene-list">{rows_html}
+    </div>
   </section>
-  <section class="method">
-    <h2>How the scenes were computed</h2>
+  <section class="section" id="method">
+    <div class="section-head"><p class="label">Method</p></div>
     <div class="method-grid">
-      <div><h3>Dynamics</h3><p>The circular restricted three-body problem in the rotating frame, integrated with
-      an eighth order Runge-Kutta method at a tolerance of 1e-12. The Jacobi constant is used as the check on
-      every propagation.</p></div>
-      <div><h3>Periodic orbits</h3><p>Differential correction using the state transition matrix, then
-      continuation from one converged orbit to the next to grow a family. Stability and manifolds come from the
+      <div><p class="label">01</p><h3>Dynamics</h3><p>The circular restricted three-body problem in the rotating
+      frame, integrated with an eighth order Runge-Kutta method at a tolerance of 1e-12. The Jacobi constant
+      checks every propagation.</p></div>
+      <div><p class="label">02</p><h3>Periodic orbits</h3><p>Differential correction with the state transition
+      matrix, then continuation from one converged orbit to the next. Stability and manifolds come from the
       eigenvalues and eigenvectors of the monodromy matrix.</p></div>
-      <div><h3>Observation</h3><p>Sun and Moon positions from the JPL DE440 ephemeris, Earth rotation from the
-      IAU 2006 sidereal time, and a set of access constraints that decide when a ground telescope can take a
+      <div><p class="label">03</p><h3>Observation</h3><p>Sun and Moon from the JPL DE440 ephemeris, Earth rotation
+      from IAU 2006 sidereal time, and access constraints that decide when a telescope can take a
       measurement.</p></div>
     </div>
-    <p class="fine">The pages are precomputed and static, so the inputs cannot be changed here. The full tool
-    runs locally with an editable scenario, parameter sweeps, orbit determination filters and a GMAT export.</p>
+    <p class="fine">These pages are precomputed, so the inputs are fixed. The full tool runs locally with an
+    editable scenario, parameter sweeps, orbit determination filters and a GMAT export.</p>
   </section>
 </main>
-<footer class="footer">{html.escape(AUTHOR)}. {html.escape(AUTHOR_LINE)}.</footer>
+{FOOTER}
+<script type="application/json" id="page-data">{embedded_json(hero_data)}</script>
 """
-    return page_shell("Cislunar | Earth-Moon orbits, interactive",
+    return page_shell("Cislunar | Earth-Moon trajectory analysis",
                       "Interactive scenes of halo orbits, NRHOs, manifolds and distant retrograde orbits in the "
-                      "Earth-Moon three-body problem.", body)
+                      "Earth-Moon three-body problem.", body, scripts=PAGE_SCRIPTS)
 
 
 def build_site(directory=SITE_DIRECTORY):
@@ -498,15 +518,22 @@ def build_site(directory=SITE_DIRECTORY):
         neighbours = (specs[k - 1], specs[(k + 1) % len(specs)])
         path = os.path.join(directory, f"{spec['slug']}.html")
         with open(path, "w") as handle:
-            handle.write(scene_page(spec, results, neighbours))
+            handle.write(scene_page(spec, results, neighbours, k + 1))
         written.append(path)
 
         trajectories, manifolds, _, bodies, _ = displayed_frame(results, spec["views"][0][0])
         cards.append((spec, thumbnail_svg(trajectories, manifolds, bodies, BODY_RADII)))
 
+    hero_spec = specs[0]
+    hero_results = runner.run_scenario(hero_spec["scenario"], FAMILIES, ephemeris=EPHEMERIS)
+    frame, view, focus = hero_spec["views"][0]
+    hero_figure = scene_figure(hero_spec["scenario"], hero_results, frame, view, focus, 0)
+    hero_figure.update_layout(showlegend=False, margin=dict(l=0, r=0, t=0, b=0))
+    hero_data = {"figures": [json.loads(hero_figure.to_json())], "n_samples": int(len(hero_results["times_s"])),
+                 "time_step_s": float(hero_spec["scenario"].time_step_s), "windows_s": None, "series": None}
     path = os.path.join(directory, "index.html")
     with open(path, "w") as handle:
-        handle.write(index_page(cards))
+        handle.write(index_page(cards, hero_data))
     written.append(path)
     return written
 
