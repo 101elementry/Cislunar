@@ -35,8 +35,9 @@ Units inside are non-dimensional (LU, TU); burns are reported in m/s.
 """
 
 import numpy as np
+from scipy.optimize import minimize
 
-from engine import crtbp, frames, lambert, stationkeeping
+from engine import crtbp, frames, lambert, rendezvous, stationkeeping
 from engine.crtbp import MU
 
 
@@ -123,7 +124,7 @@ def tangential_departure_seed(target_position_inertial, transfer_time, radius, m
 
 
 def from_circular_orbit(target_state, transfer_time, centre="moon", altitude_km=100.0, plane_angle_deg=0.0,
-                        mu=MU, n_points=400):
+                        arrival_offset_km=None, mu=MU, n_points=400):
     """
     Two-burn transfer from a circular parking orbit about the Moon or
     the Earth to a target, arriving after transfer_time (TU).
@@ -131,6 +132,11 @@ def from_circular_orbit(target_state, transfer_time, centre="moon", altitude_km=
     target_state    : (6,) rotating-frame state of the target at time zero
     altitude_km     : height of the parking orbit above the body
     plane_angle_deg : which parking orbit plane, see transfer_plane_normal
+    arrival_offset_km : optional (3,) radial, along-track, cross-track
+                      offset from the target, in its LVLH frame about
+                      the Moon.  The vehicle then arrives at that hold
+                      point and stops relative to the target, instead of
+                      flying straight to it.
 
     Returns None if there is no tangential seed or the correction does
     not converge, otherwise a dictionary
@@ -148,6 +154,8 @@ def from_circular_orbit(target_state, transfer_time, centre="moon", altitude_km=
     radius = body_radius + crtbp.length_to_nondim(altitude_km)
 
     target_arrival = crtbp.propagate(np.asarray(target_state, dtype=float), transfer_time, mu).y[:, -1]
+    if arrival_offset_km is not None:
+        target_arrival = rendezvous.hold_point_state(target_arrival, arrival_offset_km, "moon", mu)
     arrival_inertial = frames.rotating_to_inertial_states(target_arrival[np.newaxis, :],
                                                           np.array([transfer_time]), centre, mu)[0]
     normal = transfer_plane_normal(arrival_inertial[:3] / np.linalg.norm(arrival_inertial[:3]), plane_angle_deg)
@@ -179,3 +187,139 @@ def from_circular_orbit(target_state, transfer_time, centre="moon", altitude_km=
             "transfer_states": coast.y.T, "transfer_times": coast.t,
             "arrival_position_error_km": miss_km,
             "parking_inclination_deg": float(np.degrees(np.arccos(np.clip(normal[2], -1.0, 1.0))))}
+
+
+# --------------------------------------------------------------------------
+# Closest approach to the Earth, and the powered lunar flyby
+# --------------------------------------------------------------------------
+
+def earth_perigees(state, duration, mu=MU):
+    """
+    Every closest approach to the Earth along a trajectory propagated
+    for `duration` TU (negative to go back in time).
+
+    The distance to the Earth stops changing when the position relative
+    to the Earth is perpendicular to the velocity; the Earth is fixed in
+    the rotating frame, so the rotating-frame velocity can be used.  The
+    integrator is asked to stop at nothing but to report those instants,
+    and the ones that are minima are kept.
+
+    Returns a list of (time TU, radius LU, state (6,)), in the order met.
+    """
+    earth = crtbp.earth_position(mu)
+
+    def range_rate(_, current, *unused):    # solve_ivp also passes mu, the argument of the dynamics
+        return np.dot(current[:3] - earth, current[3:6])
+
+    # Going forward in time a perigee is where the range rate rises
+    # through zero; going backward the integrator sees it falling.
+    range_rate.direction = 1.0 if duration > 0.0 else -1.0
+    solution = crtbp.propagate(np.asarray(state, dtype=float), duration, mu, events=range_rate)
+    found = []
+    for time, event_state in zip(solution.t_events[0], solution.y_events[0]):
+        found.append((float(time), float(np.linalg.norm(event_state[:3] - earth)), event_state.copy()))
+    return found
+
+
+def earth_inertial_velocity(state, mu=MU):
+    """Velocity relative to the Earth in non-rotating axes: v + z x (r - r_earth)."""
+    offset = state[:3] - crtbp.earth_position(mu)
+    return state[3:6] + np.cross(np.array([0.0, 0.0, 1.0]), offset)
+
+
+def flyby_from_earth(leg_to_target, parking_altitude_km=200.0, search_days=8.0, mu=MU):
+    """
+    The Earth-to-Moon leg and the powered lunar flyby that feed a given
+    Moon-to-target leg, which together make the three-burn transfer
+    crewed missions fly: injection from Earth orbit, a braking burn at
+    the closest point to the Moon, insertion at the target.
+
+    leg_to_target : a result of from_circular_orbit about the Moon.  Its
+                    departure point is the flyby's perilune and its
+                    departure velocity is what the vehicle must have
+                    after the flyby burn.
+
+    The unknown is the flyby burn itself, three components.  For any
+    choice, the velocity before the burn is known, and the path can be
+    followed back in time from perilune to its closest approach to the
+    Earth.  The burn wanted is the smallest one whose path came from a
+    perigee at the parking orbit's altitude: a minimisation with one
+    equality condition, solved by sequential quadratic programming
+    (scipy SLSQP).  It starts from the best purely braking burn, the one
+    along the direction of travel, found by a scan.  At perigee the
+    velocity is horizontal, so the injection burn is the perigee speed
+    minus circular speed.
+
+    Returns None if the optimiser cannot reach the perigee, else
+        injection_m_s, flyby_m_s : burn magnitudes
+        coast_days               : perigee to perilune
+        perigee_state            : (6,) rotating-frame state just after
+                                   the injection burn
+        flyby_delta_v            : (3,) LU/TU rotating frame, the burn at
+                                   perilune (a braking burn)
+        parking_inclination_deg  : tilt of the Earth parking orbit to the
+                                   Earth-Moon plane
+    """
+    moon = crtbp.moon_position(mu)
+    z_hat = np.array([0.0, 0.0, 1.0])
+    perilune = leg_to_target["start_state"].copy()
+    after_burn = perilune[3:] + crtbp.velocity_to_nondim(leg_to_target["delta_v1_m_s"] / 1000.0)
+    # Moon-centred non-rotating velocity after the flyby burn.
+    after_inertial = after_burn + np.cross(z_hat, perilune[:3] - moon)
+    target_radius = frames.EARTH_RADIUS_ND + crtbp.length_to_nondim(parking_altitude_km)
+    duration = -crtbp.time_to_nondim(search_days * crtbp.SECONDS_PER_DAY)
+
+    def perigee_for(extra_inertial):
+        """Closest approach to the Earth of the path that arrives at perilune faster by extra_inertial."""
+        before_inertial = after_inertial + extra_inertial
+        state = np.concatenate([perilune[:3], before_inertial - np.cross(z_hat, perilune[:3] - moon)])
+        # The perigee wanted is the last one before the flyby: the first
+        # met going back, at least a day away so that a wobble near the
+        # Moon is not mistaken for it.
+        for time, radius, event_state in earth_perigees(state, duration, mu):
+            if abs(time) > crtbp.time_to_nondim(crtbp.SECONDS_PER_DAY):
+                return radius, time, event_state
+        return None
+
+    # Scan braking burns along the direction of travel for the lowest perigee.
+    best_k = None
+    for k in np.linspace(0.02, 0.3, 15):
+        found = perigee_for(k * after_inertial)
+        if found is not None and (best_k is None or found[0] < best_k[1]):
+            best_k = (k, found[0])
+    if best_k is None:
+        return None
+
+    # Work in m/s so that the three unknowns are of order a hundred, and
+    # measure the perigee miss in thousands of kilometres.
+    unit = crtbp.velocity_to_nondim(0.001)
+
+    def miss_thousand_km(extra_m_s):
+        found = perigee_for(np.asarray(extra_m_s) * unit)
+        if found is None:
+            return 400.0
+        return crtbp.length_to_km(found[0] - target_radius) / 1000.0
+
+    solution = minimize(lambda extra: float(np.linalg.norm(extra)), best_k[0] * after_inertial / unit,
+                        method="SLSQP", constraints=[{"type": "eq", "fun": miss_thousand_km}],
+                        options={"maxiter": 60, "ftol": 1e-4})
+    extra = solution.x * unit
+    found = perigee_for(extra)
+    if found is None or abs(crtbp.length_to_km(found[0] - target_radius)) > 50.0:
+        return None
+    braking = extra
+    radius, time, perigee_state = found
+    perigee_velocity = earth_inertial_velocity(perigee_state, mu)
+    circular = np.sqrt((1.0 - mu) / radius)
+    momentum = np.cross(perigee_state[:3] - crtbp.earth_position(mu), perigee_velocity)
+
+    def to_m_s(velocity):
+        return crtbp.velocity_to_km_s(velocity) * 1000.0
+
+    return {"injection_m_s": float(to_m_s(np.linalg.norm(perigee_velocity) - circular)),
+            "flyby_m_s": float(to_m_s(np.linalg.norm(braking))),
+            "coast_days": float(crtbp.time_to_days(abs(time))),
+            "perigee_state": perigee_state, "flyby_delta_v": -braking,
+            "perigee_altitude_km": float(crtbp.length_to_km(radius - frames.EARTH_RADIUS_ND)),
+            "parking_inclination_deg": float(np.degrees(np.arccos(np.clip(
+                momentum[2] / np.linalg.norm(momentum), -1.0, 1.0))))}

@@ -302,47 +302,51 @@ def scene_proximity():
             "facts": facts}
 
 
-def burn_facts(scenario, vehicle_name):
-    """Arrival burn of the vehicle as text, from the scenario's burn list."""
+def burn_sizes(scenario, vehicle_name):
+    """[(day, size in m/s)] of the vehicle's burns, from the scenario's burn list."""
     vehicle = scenario.spacecraft_named(vehicle_name)
-    burn = vehicle.burns[0]
-    return burn["time_days"], float(np.linalg.norm(burn["delta_v_m_s"]))
+    return [(burn["time_days"], float(np.linalg.norm(burn["delta_v_m_s"]))) for burn in vehicle.burns]
 
 
 def scene_lander():
     scenario = Scenario.load(os.path.join(REPOSITORY_ROOT, "scenarios", "lander_to_nrho.json"))
 
     def facts(results):
-        days, insertion = burn_facts(scenario, "Lander")
-        separation = np.linalg.norm(results["trajectories"]["Lander"][:, :3] - results["trajectories"]["Gateway"][:, :3], axis=1)
+        burns = burn_sizes(scenario, "Lander")
+        separation = crtbp.length_to_km(np.linalg.norm(
+            results["trajectories"]["Lander"][:, :3] - results["trajectories"]["Gateway"][:, :3], axis=1))
         return [("Parking orbit", "100 km circular, polar"),
-                ("Transfer time", f"{days * 24.0:.0f} hours"),
-                ("Burn on arrival", f"{insertion:.0f} m/s, matching the Gateway's velocity"),
-                ("Separation after the arrival burn", f"{crtbp.length_to_km(separation[-1]):.1f} km at the end of the run"),
-                ("Total for the leg", "see output/artemis_profile.csv; about 700 m/s with the departure burn")]
+                ("Transfer to the first hold point", f"{burns[0][0] * 24.0:.0f} hours"),
+                ("Burn to stop at 30 km", f"{burns[0][1]:.0f} m/s"),
+                ("Stepped approach, four burns", f"{sum(size for _, size in burns[1:]):.1f} m/s"),
+                ("Distance at the end of the run", f"{separation[-1]:.2f} km"),
+                ("Whole leg with the departure burn", "about 715 m/s, see output/artemis_profile.csv")]
 
     return {"slug": "lander-ascent", "kicker": "Crewed missions", "title": "A lander climbs to the NRHO",
-            "tagline": "From a 100 km polar lunar orbit to a rendezvous with the Gateway orbit in half a day.",
+            "tagline": "From a 100 km polar lunar orbit to a stepped approach on the Gateway orbit.",
             "scenario": scenario, "views": [("moon_rotating", "moon", "none"), ("lvlh:Gateway", "moon", "none")],
             "pair": None,
             "paragraphs": [
                 "This is the ascent leg of a lunar landing mission. The lander has left the surface and waits "
-                "in a low polar orbit. It burns once to leave that orbit, coasts for about twelve hours, and "
-                "burns again to match the velocity of the station on the NRHO. The scene starts just after the "
-                "first burn. The descent to the surface is the same transfer flown in reverse.",
+                "in a low polar orbit. It burns once to leave that orbit and coasts for twelve hours. The "
+                "scene starts just after that first burn. The descent to the surface is the same transfer "
+                "flown in reverse.",
+                "It does not fly straight at the station. It arrives at a hold point 30 km behind it and "
+                "stops there, as the station sees it. After an hour it moves to a second hold at 12 km, just "
+                "outside the 10 km keep-out sphere, and stops again. The last hop closes to 500 metres. Each "
+                "stop is a chance to check the vehicle and wave it off, which is how crewed vehicles approach "
+                "a station. Between hops the lander drifts freely, and the next hop starts from wherever "
+                "that has left it.",
                 "The transfer was found in two steps. Lambert's problem about the Moon alone gives a first "
                 "guess, with the departure point chosen so that the burn is along the direction of travel. "
-                "That guess is then corrected with the full Earth-Moon equations, because twelve hours is long "
-                "enough for the Earth to pull the path off a two-body ellipse. Without the first guess the "
-                "same corrector settles on a transfer five times more expensive.",
-                "The cheap route arrives just after the station passes perilune, its closest point to the "
-                "Moon. Arriving elsewhere on the NRHO costs up to four times as much."],
+                "That guess is then corrected with the full Earth-Moon equations. Without the first guess "
+                "the same corrector settles on a transfer five times more expensive. The cheap route arrives "
+                "just after the station passes perilune."],
             "look_for": [
-                "On the right the view rides with the station. The lander closes from thousands of kilometres "
-                "and stops at the origin when the arrival burn matches velocities.",
-                "The red dotted sphere is a 10 km keep-out zone. A real approach would hold outside it and "
-                "continue in small steps.",
-                "After arrival the two markers stay together, which is the check that the second burn is right."],
+                "On the right the view rides with the station. The lander closes from thousands of kilometres, "
+                "then the path breaks into short hops with a pause between them.",
+                "The red dotted sphere is the 10 km keep-out zone. Only the final hop goes inside it.",
+                "The whole stepped approach costs about 14 m/s, small next to the 700 m/s of the transfer."],
             "facts": facts}
 
 
@@ -351,37 +355,38 @@ def scene_crew():
     pair = ("Sydney 0.5 m telescope", "Crew vehicle")
 
     def facts(results):
-        days, insertion = burn_facts(scenario, "Crew vehicle")
+        burns = burn_sizes(scenario, "Crew vehicle")
         windows = results["windows"][pair]
         return [("Parking orbit", "200 km circular Earth orbit"),
-                ("Transfer time", f"{days:.0f} days"),
-                ("NRHO insertion burn", f"{insertion:.0f} m/s, direct"),
-                ("Sydney access windows on the vehicle", f"{len(windows)} during the run"),
-                ("Fraction of the run observable", f"{100.0 * results['duty_cycle'][pair]:.0f} %")]
+                ("Injection burn", "about 3,130 m/s, before the scene starts"),
+                ("Flyby burn, 150 km above the Moon", f"{burns[0][1]:.0f} m/s on day {burns[0][0]:.1f}"),
+                ("NRHO insertion burn", f"{burns[1][1]:.0f} m/s on day {burns[1][0]:.1f}"),
+                ("Direct two-burn transfer, for comparison", "921 m/s insertion"),
+                ("Sydney access windows on the vehicle", f"{len(windows)} during the run")]
 
     return {"slug": "crew-transfer", "kicker": "Crewed missions", "title": "A crew vehicle flies to the NRHO",
-            "tagline": "From low Earth orbit to the Gateway orbit, tracked from a telescope in Sydney on the way.",
+            "tagline": "From low Earth orbit past the Moon to the Gateway orbit, tracked from Sydney on the way.",
             "scenario": scenario, "views": [("rotating", "system", "none"), ("earth_inertial", "system", "none")],
             "pair": pair, "access_text": "Sydney sees the vehicle",
             "paragraphs": [
                 "A crew vehicle leaves a 200 km Earth orbit with a single burn of about 3.1 km/s, the "
-                "trans-lunar injection. It coasts for several days and burns again to enter the NRHO beside "
-                "the station. The scene starts just after the first burn. The left panel turns with the "
-                "Moon, so the transfer curves; the right panel is fixed to the stars and shows the same path "
-                "as the long ellipse it nearly is.",
-                "This is the simple two-burn version. Flown missions add a close, powered pass of the Moon on "
-                "the way in, which roughly halves the insertion burn at the price of another manoeuvre and a "
-                "tighter navigation problem.",
-                "The strip below shows when a half metre telescope in Sydney could see the vehicle during the "
-                "coast. Close to the Earth it is bright but moves quickly and spends much of its time in "
-                "daylight or below the horizon. Near the Moon it is faint and close to the Moon's glare. "
-                "Tracking an outbound vehicle from the ground with angles alone is the same estimation "
-                "problem as tracking the station, with far less time to solve it."],
+                "trans-lunar injection. The scene starts just after it. Four days later the vehicle passes "
+                "150 km above the far side of the Moon and brakes there, where it is moving fastest and a "
+                "change of speed is worth most. A day and a half later a small third burn puts it beside "
+                "the station on the NRHO.",
+                "Flying past the Moon roughly halves the cost of arriving. Going directly to the NRHO with two "
+                "burns needs 921 m/s at arrival. With the flyby the two burns after leaving the Earth add up "
+                "to about 470 m/s. The flyby burn was found as the smallest burn at closest approach whose "
+                "incoming path, followed back in time, came from a 200 km Earth orbit.",
+                "The strip below shows when a half metre telescope in Sydney could see the vehicle during "
+                "the coast. Tracking an outbound vehicle from the ground with angles alone is the same "
+                "estimation problem as tracking the station, with far less time to solve it, and a flyby "
+                "burn on the far side of the Moon is a manoeuvre no ground telescope can watch."],
             "look_for": [
                 "The access light shows when Sydney can observe the vehicle.",
-                "After the insertion burn the vehicle and the station move together round the NRHO.",
-                "In the inertial panel the Moon arrives at the meeting point at the same moment as the vehicle. "
-                "The transfer is aimed at where the Moon will be."],
+                "The path bends sharply at the Moon. Most of that bend is the Moon's gravity and the rest is "
+                "the braking burn.",
+                "After the insertion burn the vehicle and the station move together round the NRHO."],
             "facts": facts}
 
 

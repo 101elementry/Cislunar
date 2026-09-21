@@ -133,6 +133,69 @@ def state_from_lvlh_offset(target_state, relative_position_km, relative_velocity
     return np.concatenate([position, velocity])
 
 
+def hold_point_state(target_state, offset_km, centre="moon", mu=MU):
+    """
+    Rotating-frame state of a hold point: a place fixed in the target's
+    LVLH frame (radial, along-track, cross-track offset in km) with no
+    velocity in that frame.  A chaser put there is momentarily at rest
+    as the target sees it.  The CRTBP equations do not depend on time,
+    so state_from_lvlh_offset, written for time zero, holds at any time.
+    """
+    return state_from_lvlh_offset(target_state, offset_km, [0.0, 0.0, 0.0], centre, mu)
+
+
+def hop_to_hold_point(chaser_state, target_state, offset_km, transfer_time, centre="moon", mu=MU):
+    """
+    Two burns that take a chaser from where it is to a hold point beside
+    the target, arriving after transfer_time (TU) and stopping there.
+
+    chaser_state, target_state : (6,) rotating-frame states at the start
+    Returns (delta_v1, delta_v2, chaser_state_after, target_state_after,
+    miss_km): the burns in LU/TU (rotating frame), both states just
+    after the second burn, and how closely the first burn hit the point.
+    """
+    target_after = crtbp.propagate(np.asarray(target_state, dtype=float), transfer_time, mu).y[:, -1]
+    hold = hold_point_state(target_after, offset_km, centre, mu)
+    delta_v1 = stationkeeping.targeting_manoeuvre(np.asarray(chaser_state, dtype=float), hold[:3],
+                                                  transfer_time, mu, iterations=8)
+    departed = np.asarray(chaser_state, dtype=float).copy()
+    departed[3:] = departed[3:] + delta_v1
+    arrived = crtbp.propagate(departed, transfer_time, mu).y[:, -1]
+    delta_v2 = hold[3:] - arrived[3:]
+    miss_km = crtbp.length_to_km(np.linalg.norm(arrived[:3] - hold[:3]))
+    arrived[3:] = hold[3:]
+    return delta_v1, delta_v2, arrived, target_after, miss_km
+
+
+def approach_sequence(chaser_state, target_state, waypoints, centre="moon", mu=MU):
+    """
+    A stepped approach through hold points, the way crewed vehicles close
+    on a station: stop outside the keep-out sphere, wait for a go, move
+    to the next point, stop again.
+
+    waypoints : list of (offset_km (3,), wait_before TU, transfer_time TU)
+    The chaser drifts freely during each wait; the next hop starts from
+    wherever that leaves it, as a real one would.
+
+    Returns (burns, chaser_state, target_state, elapsed) where burns is
+    a list of (time TU from the start, delta_v (3,) LU/TU).
+    """
+    chaser = np.asarray(chaser_state, dtype=float)
+    target = np.asarray(target_state, dtype=float)
+    elapsed = 0.0
+    burns = []
+    for offset_km, wait, transfer_time in waypoints:
+        if wait > 0.0:
+            chaser = crtbp.propagate(chaser, wait, mu).y[:, -1]
+            target = crtbp.propagate(target, wait, mu).y[:, -1]
+            elapsed += wait
+        delta_v1, delta_v2, chaser, target, _ = hop_to_hold_point(chaser, target, offset_km, transfer_time, centre, mu)
+        burns.append((elapsed, delta_v1))
+        elapsed += transfer_time
+        burns.append((elapsed, delta_v2))
+    return burns, chaser, target, elapsed
+
+
 def two_impulse_rendezvous(chaser_state, target_state, transfer_time, mu=MU, n_points=400):
     """
     Two-burn rendezvous from the chaser's state to the target's state
