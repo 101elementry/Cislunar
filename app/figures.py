@@ -380,7 +380,7 @@ def relative_figure(relative_paths_km, target_name, index=0, keep_out_radius_km=
                                       line=dict(width=1, color="#3a3a3a")))
 
     figure.update_layout(
-        scene=dict(xaxis=dict(title=f"along-track [km], LVLH of {target_name} about the {centre}",
+        scene=dict(xaxis=dict(title=f"along-track [km], LVLH of {target_name} about the {centre.capitalize()}",
                               range=[lower[0], upper[0]], **SCENE_AXIS),
                    yaxis=dict(title="cross-track [km]", range=[lower[1], upper[1]], **SCENE_AXIS),
                    zaxis=dict(title="radial [km]", range=[lower[2], upper[2]], **SCENE_AXIS),
