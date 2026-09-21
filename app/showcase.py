@@ -446,15 +446,20 @@ def scene_mars_transfer():
                 "The cost at each end depends on where the burn is made. From a 400 km circular Earth orbit "
                 "the departure burn is 3.6 km/s. A vehicle that has been assembled and fuelled in the NRHO "
                 "instead falls toward the Earth, reaches a low perigee at almost escape speed, and burns "
-                "there. The same departure then costs about 0.6 km/s, plus the few hundred metres per second "
-                "needed to leave the NRHO. The propellant still has to be lifted to the NRHO, but it can go "
-                "in separate launches on slow, efficient routes, which is the argument for staging there."],
+                "there. The same departure then costs about 0.55 km/s at perigee. Getting from the NRHO to "
+                "that perigee takes two more burns, one on the NRHO and one close to the Moon, of about "
+                "0.48 km/s together, so the whole departure is about 1.0 km/s against 3.6. The propellant "
+                "still has to be lifted to the NRHO, but it can go in separate launches on slow, efficient "
+                "routes, which is the argument for staging there."],
             "look_for": [
                 "The vehicle leaves ahead of Mars and the two meet. Mars moves more slowly, so the vehicle "
                 "aims at where Mars will be.",
                 "The transfer orbit is slightly tilted, because the orbit of Mars is inclined 1.85 degrees "
                 "to the Earth's.",
-                "Miss this window and the next is in August 2037, at a much higher launch energy."],
+                "Miss this window and the next is in August 2037, at a much higher launch energy.",
+                "A crew that stays only a month cannot wait for the cheap way home. Passing Venus on the way "
+                "out brings such a mission to about 640 days and 5.4 km/s, with an entry the heat shield "
+                "can take."],
             "facts": None}
 
 

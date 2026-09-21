@@ -139,7 +139,7 @@ class Ephemeris:
 
     def heliocentric_state(self, body, jd_tdb):
         """
-        Position (n, 3) km and velocity (n, 3) km/s of "earth" or "mars"
+        Position (n, 3) km and velocity (n, 3) km/s of "earth", "mars" or "venus"
         relative to the Sun, ICRF axes.  Every segment is given from the
         solar-system barycentre (the Earth through the Earth-Moon
         barycentre), so the Sun's own barycentric state is subtracted.
@@ -149,11 +149,11 @@ class Ephemeris:
             emb_position, emb_velocity = self.segments["emb"].position_velocity(jd_tdb)
             earth_position, earth_velocity = self.segments["earth"].position_velocity(jd_tdb)
             return emb_position + earth_position - sun_position, emb_velocity + earth_velocity - sun_velocity
-        if body == "mars":
-            if "mars" not in self.segments:
-                raise ValueError("this ephemeris extract has no Mars; rerun scripts/fetch_ephemeris.py")
-            mars_position, mars_velocity = self.segments["mars"].position_velocity(jd_tdb)
-            return mars_position - sun_position, mars_velocity - sun_velocity
+        if body in ("mars", "venus"):
+            if body not in self.segments:
+                raise ValueError(f"this ephemeris extract has no {body}; rerun scripts/fetch_ephemeris.py")
+            planet_position, planet_velocity = self.segments[body].position_velocity(jd_tdb)
+            return planet_position - sun_position, planet_velocity - sun_velocity
         raise ValueError(f"no heliocentric state for {body!r}")
 
     def earth_moon_distance_km(self, jd_tdb):

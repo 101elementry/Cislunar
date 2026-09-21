@@ -1,0 +1,6 @@
+case,depart,arrive_mars,home,total_days,outbound,return,outbound_burns_km_s,return_burns_km_s,total_km_s,entry_speed_km_s
+no Venus flyby,2035-08-04,2036-07-29,2037-10-02,790,direct,direct,2.531,3.078,5.609,12.25
+Venus on the way home,2035-01-26,2035-09-23,2036-09-27,610,direct,"Venus flyby at 12,391 km",4.177,3.218,7.395,12.00
+Venus on the way out,2034-07-20,2035-07-05,2036-04-20,640,"Venus flyby at 4,056 km",direct,3.565,1.872,5.437,12.70
+best of all,2034-07-20,2035-07-05,2036-04-20,640,"Venus flyby at 4,056 km",direct,3.565,1.872,5.437,12.70
+best under 650 days,2034-07-20,2035-07-05,2036-04-20,640,"Venus flyby at 4,056 km",direct,3.565,1.872,5.437,12.70

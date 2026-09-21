@@ -44,7 +44,9 @@ python scripts/geo_rendezvous.py            # GEO parking-orbit drift and two-bu
 python scripts/elfo_drift.py                # how frozen a lunar frozen orbit stays
 python scripts/export_gmat.py               # GMAT script for a high-fidelity cross-check
 python scripts/mars_transfers.py            # Mars launch windows, porkchop plot, NRHO staging
-python scripts/artemis_profile.py           # lander and crew legs to the NRHO (about 20 minutes)
+python scripts/artemis_profile.py           # lander and crew legs to the NRHO (about two minutes)
+python scripts/nrho_departure.py            # NRHO to a low Earth perigee for a Mars departure
+python scripts/mars_short_stay.py           # 30-day Mars stay with and without a Venus flyby
 ```
 
 ## What the interface does
@@ -104,8 +106,14 @@ after perilune) and the crew leg (200 km Earth orbit to the NRHO,
 direct), and writes `scenarios/lander_to_nrho.json` and
 `scenarios/crew_to_nrho.json`, which the Examples menu loads: the
 station, the vehicle with its arrival burn, and the Sydney telescope
-watching both.  A flown crew mission adds a powered lunar flyby, which
-this direct transfer does not model.
+watching both.  The lander arrives at a hold point 30 km behind the
+station and closes through 12 km to 500 m
+(`engine.rendezvous.approach_sequence`, about 14 m/s).  The crew vehicle
+flies a powered lunar flyby (`transfers.flyby_from_earth`): injection
+3,134 m/s, 295 m/s at 150 km above the Moon, 171 m/s insertion, against
+921 m/s insertion for the direct transfer.  The cheapest flyby cases
+need a parking orbit steeply inclined to the Earth-Moon plane; the scan
+prints the inclination of each.
 
 ## Earth-Mars transfers
 
@@ -119,8 +127,17 @@ departure burn from a low circular orbit against a burn at a low
 perigee reached from the Moon's distance, which is what staging in the
 NRHO buys.  `python scripts/mars_transfers.py` finds the windows from
 2030 to 2042, draws `fig12_mars_porkchop.png` and compares a long stay
-with a 30-sol stay.  The burn that leaves the NRHO and lowers the
-perigee is a three-body problem and is not yet included.
+with a 30-sol stay.  `python scripts/nrho_departure.py` prices the leg
+from the NRHO down to that perigee in the three-body model: no single
+burn of up to 200 m/s along the direction of travel gets below about
+100,000 km, but the crew arrival flown backwards in the mirror (the
+equations are symmetric under y -> -y, t -> -t) is an exact departure,
+about 0.48 km/s, so leaving the NRHO for Mars in 2035 costs about
+1.0 km/s against 3.6 from low Earth orbit.
+`python scripts/mars_short_stay.py` adds Venus (in the extract) and
+`interplanetary.gravity_assist`: a 30-day stay with a Venus flyby on
+the way out comes to about 640 days and 5.4 km/s with a 12.7 km/s
+entry.
 
 ## Access constraints
 

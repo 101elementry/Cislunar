@@ -44,8 +44,10 @@ from engine import lambert
 MU_SUN_KM3_S2 = 1.32712440018e11
 MU_EARTH_KM3_S2 = 398600.4418
 MU_MARS_KM3_S2 = 42828.37
+MU_VENUS_KM3_S2 = 324858.59
 EARTH_RADIUS_KM = 6378.137
 MARS_RADIUS_KM = 3396.2
+VENUS_RADIUS_KM = 6051.8
 MOON_DISTANCE_KM = 384400.0
 SECONDS_PER_DAY = 86400.0
 AU_KM = 149597870.7
@@ -181,3 +183,52 @@ def best_in_window(ephemeris, departure_jds, arrival_jds, c3, v_infinity_arrive,
         return None
     row, column = np.unravel_index(np.nanargmin(total), total.shape)
     return departure_jds[column], arrival_jds[row], c3[row, column], v_infinity_arrive[row, column]
+
+
+
+def gravity_assist(v_infinity_in, v_infinity_out, mu=MU_VENUS_KM3_S2, body_radius_km=VENUS_RADIUS_KM,
+                   min_altitude_km=300.0):
+    """
+    What a planet must do to turn one excess velocity into another.
+
+    A flyby cannot change the speed relative to the planet, only the
+    direction: the planet's gravity swings the velocity round by a turn
+    angle that is larger the closer and the slower the pass.  On a
+    hyperbola with excess speed v and periapsis radius rp the asymptote
+    makes the angle asin(1 / (1 + rp v^2 / mu)) with the axis, so the
+    whole turn, inbound half plus outbound half, is
+
+        turn = asin(1 / (1 + rp v_in^2 / mu)) + asin(1 / (1 + rp v_out^2 / mu))
+
+    Given the turn the two heliocentric legs need, this is solved for
+    rp by bisection (the turn falls steadily as rp grows).  If the two
+    speeds differ, a burn at periapsis makes up the difference, where it
+    is cheapest: the difference of the two periapsis speeds.
+
+    v_infinity_in, v_infinity_out : (3,) excess velocities, km/s
+    Returns (periapsis_altitude_km, burn_km_s, feasible).  feasible is
+    False if the turn needs a pass below min_altitude_km; the altitude
+    is then the limit and the turn is not achieved.
+    """
+    speed_in = np.linalg.norm(v_infinity_in)
+    speed_out = np.linalg.norm(v_infinity_out)
+    turn = np.arccos(np.clip(np.dot(v_infinity_in, v_infinity_out) / (speed_in * speed_out), -1.0, 1.0))
+
+    def turn_at(periapsis_radius):
+        return (np.arcsin(1.0 / (1.0 + periapsis_radius * speed_in ** 2 / mu))
+                + np.arcsin(1.0 / (1.0 + periapsis_radius * speed_out ** 2 / mu)))
+
+    lowest = body_radius_km + min_altitude_km
+    feasible = turn_at(lowest) >= turn
+    periapsis = lowest
+    if feasible:
+        low, high = lowest, 1.0e7
+        for _ in range(80):
+            middle = 0.5 * (low + high)
+            if turn_at(middle) > turn:
+                low = middle
+            else:
+                high = middle
+        periapsis = 0.5 * (low + high)
+    burn = abs(speed_on_hyperbola(speed_out, periapsis, mu) - speed_on_hyperbola(speed_in, periapsis, mu))
+    return periapsis - body_radius_km, burn, bool(feasible)
