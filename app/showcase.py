@@ -25,8 +25,9 @@ import shutil
 
 import numpy as np
 
-from engine import crtbp
+from engine import crtbp, frames, interplanetary
 from model import runner
+from model.interplanetary import transfer_scene
 from model.ephemeris import load_ephemeris
 from model.family import load_families
 from model.scenario import (Scenario, Spacecraft, GroundStation, OpticalSensor, ELEMENT_PRESETS,
@@ -283,7 +284,8 @@ def scene_proximity():
                 "the Moon. The chaser starts 50 km behind the target with no relative velocity, which in a "
                 "circular Earth orbit would keep it there indefinitely.",
                 "Near the Moon it does not stay. The two spacecraft are on slightly different three-body "
-                "orbits, and the difference grows fastest as they fall toward the Moon. Within a day the "
+                "orbits, and this run starts at perilune, 3,200 km from the Moon, where a small difference "
+                "in position grows fastest. Within a day the "
                 "chaser has drifted beyond the range at which its camera can see the target. The "
                 "Clohessy-Wiltshire equations used for rendezvous in low Earth orbit assume a circular "
                 "two-body orbit and cannot describe this, so the motion here is propagated with the full "
@@ -300,8 +302,76 @@ def scene_proximity():
             "facts": facts}
 
 
+def thumbnail_top_down(paths, colors, size=(320, 200)):
+    """SVG of paths seen from above the x-y plane, with a dot at the origin for the Sun."""
+    everything = np.vstack([path[:, :2] for path in paths.values()])
+    extent = np.abs(everything).max()
+    scale = 0.45 * min(size) / extent
+    parts = [f'<svg viewBox="0 0 {size[0]} {size[1]}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">']
+    for name, path in paths.items():
+        pixels = np.column_stack([size[0] / 2.0 + scale * path[:, 0], size[1] / 2.0 - scale * path[:, 1]])
+        points = " ".join(f"{x:.1f},{y:.1f}" for x, y in pixels[::3])
+        parts.append(f'<polyline points="{points}" fill="none" stroke="{colors[name]}" stroke-width="1.4"/>')
+    parts.append(f'<circle cx="{size[0] / 2.0}" cy="{size[1] / 2.0}" r="3" fill="{figures.SUN}"/></svg>')
+    return "".join(parts)
+
+
+def scene_mars_transfer():
+    departure_utc = "2035-06-28T00:00:00"
+    flight_days = 200.0
+
+    def custom():
+        departure_jd = frames.julian_date(departure_utc)
+        data = transfer_scene(EPHEMERIS, departure_jd, flight_days)
+        result = data["transfer"]
+        v_depart = float(np.sqrt(result["c3_km2_s2"]))
+        v_arrive = float(np.linalg.norm(result["v_infinity_arrive"]))
+        leo_burn = interplanetary.departure_burn_from_circular_orbit(v_depart)
+        staged_burn = interplanetary.departure_burn_from_lunar_distance(v_depart)
+        # The clock starts at the first sample of the grid, margin days before departure.
+        first_day = (np.datetime64(departure_utc) - np.timedelta64(int(round(departure_jd - data["jd"][0])), "D"))
+        clock = {"epoch_utc": str(first_day), "time_step_s": 86400.0, "n_samples": int(len(data["jd"])),
+                 "days_only": True}
+        figure = figures.heliocentric_figure(data["paths_au"], index=0, trail_samples=30, clock=clock)
+        prepared = {"figures": [figure], "captions": ["Sun-centred, ecliptic"], "n_samples": clock["n_samples"],
+                    "time_step_s": 86400.0, "series": None, "windows_s": None,
+                    "facts": [("Departure", departure_utc[:10]), ("Flight time", f"{flight_days:.0f} days"),
+                              ("Launch energy C3", f"{result['c3_km2_s2']:.2f} km2/s2"),
+                              ("Arrival excess speed", f"{v_arrive:.2f} km/s"),
+                              ("Departure burn from a 400 km orbit", f"{leo_burn:.2f} km/s"),
+                              ("Departure burn staged from lunar distance", f"{staged_burn:.2f} km/s"),
+                              ("Capture into a one-sol Mars orbit", f"{interplanetary.capture_burn(v_arrive):.2f} km/s"),
+                              ("Lambert end point against Mars", f"{data['arrival_miss_km']:.0f} km")]}
+        colors = {"Earth": figures.EARTHSHINE, "Mars": "#d9775a", "Vehicle": "#f2f2f2"}
+        return prepared, thumbnail_top_down(data["paths_au"], colors)
+
+    return {"slug": "mars-transfer", "kicker": "Interplanetary", "title": "Earth to Mars, the 2035 window",
+            "tagline": "The cheapest transfer of the June 2035 launch window, and what leaving from the NRHO saves.",
+            "custom": custom, "speeds": [(120, "5 d / s"), (240, "10 d / s"), (480, "20 d / s")],
+            "default_speed": 240,
+            "paragraphs": [
+                "A launch window to Mars opens every 26 months, when the two planets are placed so that a "
+                "transfer orbit leaving the Earth arrives where Mars will be. The vehicle here leaves at the "
+                "best date of the 2035 window and coasts for 200 days on an orbit about the Sun. The orbit "
+                "comes from Lambert's problem: given two positions and the time between them, find the orbit "
+                "that joins them. The planet positions are from the JPL DE440 ephemeris.",
+                "The cost at each end depends on where the burn is made. From a 400 km circular Earth orbit "
+                "the departure burn is 3.6 km/s. A vehicle that has been assembled and fuelled in the NRHO "
+                "instead falls toward the Earth, reaches a low perigee at almost escape speed, and burns "
+                "there. The same departure then costs about 0.6 km/s, plus the few hundred metres per second "
+                "needed to leave the NRHO. The propellant still has to be lifted to the NRHO, but it can go "
+                "in separate launches on slow, efficient routes, which is the argument for staging there."],
+            "look_for": [
+                "The vehicle leaves ahead of Mars and the two meet. Mars moves more slowly, so the vehicle "
+                "aims at where Mars will be.",
+                "The transfer orbit is slightly tilted, because the orbit of Mars is inclined 1.85 degrees "
+                "to the Earth's.",
+                "Miss this window and the next is in August 2037, at a much higher launch energy."],
+            "facts": None}
+
+
 SCENES = [scene_halo_to_nrho, scene_manifolds, scene_dro_two_frames, scene_sydney_tracking,
-          scene_proximity, scene_lunar_relay]
+          scene_proximity, scene_lunar_relay, scene_mars_transfer]
 
 
 # --------------------------------------------------------------------------
@@ -397,44 +467,64 @@ def page_shell(title, description, body, extra_head="", scripts=""):
 """
 
 
-def scene_page(spec, results, neighbours, number):
-    """HTML of one scene page; number is its place in the list, from 1."""
+DEFAULT_SPEEDS = [(2, "2 h / s"), (6, "6 h / s"), (12, "12 h / s"), (24, "1 d / s"), (72, "3 d / s")]
+
+
+def prepare_scenario_scene(spec, results):
+    """
+    What a page needs from a scenario run: the figures of its views,
+    their captions, the clock, the optional time series and windows,
+    and the table of values.
+    """
     scenario = spec["scenario"]
     scene_figures = [scene_figure(scenario, results, frame, view, focus, 0) for frame, view, focus in spec["views"]]
+    prepared = {"figures": scene_figures, "captions": [frame_label(frame) for frame, _, _ in spec["views"]],
+                "n_samples": int(len(results["times_s"])), "time_step_s": float(scenario.time_step_s),
+                "series": None, "windows_s": None, "facts": spec["facts"](results)}
+    if spec["pair"] is not None:
+        host, sensor = runner.observer_settings(scenario, spec["pair"][0])
+        panels, thresholds = series_panels_and_thresholds(host, sensor)
+        prepared["series"] = figures.time_series_figure(results["observations"][spec["pair"]]["geometry"], thresholds,
+                                                        results["windows"][spec["pair"]], panels=panels)
+        prepared["windows_s"] = [[float(start), float(stop)] for start, stop in results["windows"][spec["pair"]]]
+    return prepared
+
+
+def scene_page(spec, prepared, neighbours, number):
+    """HTML of one scene page; number is its place in the list, from 1."""
+    scene_figures = prepared["figures"]
     for figure in scene_figures:
         # The current-time markers need no legend entry of their own here;
         # with eight spacecraft they would fill the top of the scene.
         figure.for_each_trace(lambda trace: trace.update(showlegend=False),
                               selector=lambda trace: (trace.meta or {}).get("role") == "marker")
     page_data = {"figures": [json.loads(figure.to_json()) for figure in scene_figures],
-                 "n_samples": int(len(results["times_s"])),
-                 "time_step_s": float(scenario.time_step_s),
-                 "windows_s": None, "series": None}
+                 "n_samples": prepared["n_samples"], "time_step_s": prepared["time_step_s"],
+                 "windows_s": prepared["windows_s"], "series": None}
     series_block = ""
     access_light = ""
-    if spec["pair"] is not None:
-        host, sensor = runner.observer_settings(scenario, spec["pair"][0])
-        panels, thresholds = series_panels_and_thresholds(host, sensor)
-        series_figure = figures.time_series_figure(results["observations"][spec["pair"]]["geometry"], thresholds,
-                                                   results["windows"][spec["pair"]], panels=panels)
-        series_figure.update_layout(height=None, autosize=True)
-        page_data["series"] = json.loads(series_figure.to_json())
-        page_data["windows_s"] = [[float(start), float(stop)] for start, stop in results["windows"][spec["pair"]]]
+    if prepared["series"] is not None:
+        prepared["series"].update_layout(height=None, autosize=True)
+        page_data["series"] = json.loads(prepared["series"].to_json())
         series_block = '<div class="series"><div id="series" class="plot"></div></div>'
         page_data["access_text"] = spec.get("access_text", "Sydney has access")
         access_light = '<span id="access-light" class="access-light">no access</span>'
+    speeds = spec.get("speeds", DEFAULT_SPEEDS)
+    default_speed = spec.get("default_speed", 12)
+    speed_options = "".join(f'<option value="{value}"{" selected" if value == default_speed else ""}>'
+                            f'{html.escape(label)}</option>' for value, label in speeds)
 
     stage_class = "stage split" if len(scene_figures) == 2 else "stage"
     holders = ["view-3d", "view-3d-b"]
     views_html = ""
-    for k, (frame, view, focus) in enumerate(spec["views"]):
-        views_html += (f'<figure class="view"><figcaption>{html.escape(frame_label(frame))}</figcaption>'
+    for k, caption in enumerate(prepared["captions"]):
+        views_html += (f'<figure class="view"><figcaption>{html.escape(caption)}</figcaption>'
                        f'<div id="{holders[k]}" class="holder"><div class="plot"></div></div></figure>')
 
     paragraphs = "".join(f"<p>{html.escape(text)}</p>" for text in spec["paragraphs"])
     look_for = "".join(f"<li><span>{html.escape(text)}</span></li>" for text in spec["look_for"])
     facts = "".join(f"<tr><th>{html.escape(label)}</th><td>{html.escape(value)}</td></tr>"
-                    for label, value in spec["facts"](results))
+                    for label, value in prepared["facts"])
     previous_spec, next_spec = neighbours
     body = f"""
 {TOPBAR}
@@ -450,12 +540,7 @@ def scene_page(spec, results, neighbours, number):
   <section class="transport">
     <button id="play-button" class="play" type="button">Play</button>
     <label class="speed"><span class="label">Rate</span>
-      <select id="play-speed">
-        <option value="2">2 h / s</option>
-        <option value="6">6 h / s</option>
-        <option value="12" selected>12 h / s</option>
-        <option value="24">1 d / s</option>
-        <option value="72">3 d / s</option>
+      <select id="play-speed">{speed_options}
       </select>
     </label>
     <input id="scrubber" type="range" min="0" max="{page_data['n_samples'] - 1}" value="0" step="1"
@@ -557,18 +642,22 @@ def build_site(directory=SITE_DIRECTORY):
     cards = []
     for k, spec in enumerate(specs):
         print(f"  running {spec['slug']} ...")
-        results = runner.run_scenario(spec["scenario"], FAMILIES, ephemeris=EPHEMERIS)
+        if "custom" in spec:
+            prepared, thumbnail = spec["custom"]()
+        else:
+            results = runner.run_scenario(spec["scenario"], FAMILIES, ephemeris=EPHEMERIS)
+            prepared = prepare_scenario_scene(spec, results)
+            thumbnail_frame = spec["views"][0][0]
+            if thumbnail_frame.startswith("lvlh:"):
+                thumbnail_frame = "rotating"
+            trajectories, manifolds, _, bodies, _ = displayed_frame(results, thumbnail_frame)
+            thumbnail = thumbnail_svg(trajectories, manifolds, bodies, BODY_RADII)
         neighbours = (specs[k - 1], specs[(k + 1) % len(specs)])
         path = os.path.join(directory, f"{spec['slug']}.html")
         with open(path, "w") as handle:
-            handle.write(scene_page(spec, results, neighbours, k + 1))
+            handle.write(scene_page(spec, prepared, neighbours, k + 1))
         written.append(path)
-
-        thumbnail_frame = spec["views"][0][0]
-        if thumbnail_frame.startswith("lvlh:"):
-            thumbnail_frame = "rotating"
-        trajectories, manifolds, _, bodies, _ = displayed_frame(results, thumbnail_frame)
-        cards.append((spec, thumbnail_svg(trajectories, manifolds, bodies, BODY_RADII)))
+        cards.append((spec, thumbnail))
 
     hero_spec = specs[0]
     hero_results = runner.run_scenario(hero_spec["scenario"], FAMILIES, ephemeris=EPHEMERIS)

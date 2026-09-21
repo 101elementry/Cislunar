@@ -26,12 +26,7 @@
   <section class="transport">
     <button id="play-button" class="play" type="button">Play</button>
     <label class="speed"><span class="label">Rate</span>
-      <select id="play-speed">
-        <option value="2">2 h / s</option>
-        <option value="6">6 h / s</option>
-        <option value="12" selected>12 h / s</option>
-        <option value="24">1 d / s</option>
-        <option value="72">3 d / s</option>
+      <select id="play-speed"><option value="2">2 h / s</option><option value="6">6 h / s</option><option value="12" selected>12 h / s</option><option value="24">1 d / s</option><option value="72">3 d / s</option>
       </select>
     </label>
     <input id="scrubber" type="range" min="0" max="4320" value="0" step="1"
@@ -41,7 +36,7 @@
   </section>
   <div class="series"><div id="series" class="plot"></div></div>
   <section class="notes">
-    <div class="prose"><p class="label">Overview</p><p>The left panel is the view rendezvous is flown in. The target sits at the origin and the axes turn with it: along its direction of travel, across its orbit plane, and radially away from the Moon. The chaser starts 50 km behind the target with no relative velocity, which in a circular Earth orbit would keep it there indefinitely.</p><p>Near the Moon it does not stay. The two spacecraft are on slightly different three-body orbits, and the difference grows fastest as they fall toward the Moon. Within a day the chaser has drifted beyond the range at which its camera can see the target. The Clohessy-Wiltshire equations used for rendezvous in low Earth orbit assume a circular two-body orbit and cannot describe this, so the motion here is propagated with the full three-body equations for both spacecraft.</p><p>The chaser carries a camera. It can observe when the target is sunlit, bright enough, within range, and not too close to the Sun or the Moon on the sky. A camera measures direction only and never range, which makes estimating the relative orbit from these images an angles-only navigation problem.</p></div>
+    <div class="prose"><p class="label">Overview</p><p>The left panel is the view rendezvous is flown in. The target sits at the origin and the axes turn with it: along its direction of travel, across its orbit plane, and radially away from the Moon. The chaser starts 50 km behind the target with no relative velocity, which in a circular Earth orbit would keep it there indefinitely.</p><p>Near the Moon it does not stay. The two spacecraft are on slightly different three-body orbits, and this run starts at perilune, 3,200 km from the Moon, where a small difference in position grows fastest. Within a day the chaser has drifted beyond the range at which its camera can see the target. The Clohessy-Wiltshire equations used for rendezvous in low Earth orbit assume a circular two-body orbit and cannot describe this, so the motion here is propagated with the full three-body equations for both spacecraft.</p><p>The chaser carries a camera. It can observe when the target is sunlit, bright enough, within range, and not too close to the Sun or the Moon on the sky. A camera measures direction only and never range, which makes estimating the relative orbit from these images an angles-only navigation problem.</p></div>
     <div class="side">
       <p class="label">What to look for</p><ol class="look-for"><li><span>The dotted red sphere is a 10 km keep-out zone around the target.</span></li><li><span>The access light turns off once the chaser drifts past 500 km, the range limit of its camera.</span></li><li><span>The right panel shows both spacecraft on the NRHO at the same instant. At that scale they are indistinguishable, which is why a relative frame is needed.</span></li></ol>
       <p class="label">Values from this run</p><table class="facts"><tr><th>Separation at the start</th><td>50 km, directly behind the target</td></tr><tr><th>Separation after 3 days</th><td>1,394 km</td></tr><tr><th>Time within camera range</th><td>13.0 h of 72 h</td></tr><tr><th>Camera access</th><td>18 % of the span, 1 window</td></tr></table>

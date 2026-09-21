@@ -399,6 +399,61 @@ def relative_figure(relative_paths_km, target_name, index=0, keep_out_radius_km=
     return figure
 
 
+def heliocentric_figure(paths_au, index=0, trail_samples=0, clock=None):
+    """
+    Sun-centred view of an interplanetary transfer.
+
+    paths_au : {name: (n, 3)} daily positions in AU, ecliptic axes, from
+               model.interplanetary.transfer_scene; "Earth" and "Mars"
+               get the planet colours, anything else a spacecraft colour
+    Traces carry the same meta roles as trajectory_figure so the playback
+    script moves the markers and trails.
+    """
+    body_colors = {"Earth": EARTHSHINE, "Mars": "#d9775a"}
+    figure = go.Figure()
+    figure.add_trace(go.Scatter3d(x=[0.0], y=[0.0], z=[0.0], mode="markers+text", name="Sun", text=["Sun"],
+                                  textposition="top center", textfont=dict(color=TEXT_SECONDARY, size=11),
+                                  marker=dict(size=7, color=SUN), hoverinfo="name"))
+    for name, path in paths_au.items():
+        color = body_colors.get(name, "#f2f2f2")
+        figure.add_trace(go.Scatter3d(x=path[:, 0], y=path[:, 1], z=path[:, 2], mode="lines", name=name,
+                                      line=dict(width=2.0, color=color), opacity=0.55,
+                                      meta={"role": "path", "spacecraft": name, "stride": 1},
+                                      hovertemplate=f"{name}<br>%{{x:.3f}}, %{{y:.3f}}, %{{z:.3f}} AU<extra></extra>"))
+        if trail_samples > 0:
+            picks = np.clip(np.arange(index - trail_samples, index + 1), 0, len(path) - 1)
+            fade = np.linspace(0.0, 1.0, len(picks))
+            figure.add_trace(go.Scatter3d(x=path[picks, 0], y=path[picks, 1], z=path[picks, 2], mode="lines",
+                                          showlegend=False, hoverinfo="skip",
+                                          meta={"role": "trail", "spacecraft": name, "samples": int(trail_samples)},
+                                          line=dict(width=6, color=fade, cmin=0.0, cmax=1.0,
+                                                    colorscale=[[0.0, "rgba(0,0,0,0)"], [1.0, color]])))
+        now = path[min(index, len(path) - 1)]
+        figure.add_trace(go.Scatter3d(x=[now[0]], y=[now[1]], z=[now[2]], mode="markers", showlegend=False,
+                                      hoverinfo="skip", meta={"role": "halo", "spacecraft": name},
+                                      marker=dict(size=14, color=color, opacity=0.25)))
+        figure.add_trace(go.Scatter3d(x=[now[0]], y=[now[1]], z=[now[2]], mode="markers", showlegend=False,
+                                      name=f"{name} (now)", meta={"role": "marker", "spacecraft": name},
+                                      marker=dict(size=6, color="#ffffff", line=dict(color=color, width=2))))
+
+    extent = 1.08 * max(np.abs(path[:, :2]).max() for path in paths_au.values())
+    figure.update_layout(
+        scene=dict(xaxis=dict(title="x [AU], ecliptic, Sun-centred", range=[-extent, extent], **SCENE_AXIS),
+                   yaxis=dict(title="y [AU]", range=[-extent, extent], **SCENE_AXIS),
+                   zaxis=dict(title="z [AU]", range=[-0.25 * extent, 0.25 * extent], **SCENE_AXIS),
+                   aspectmode="manual", aspectratio=dict(x=1.0, y=1.0, z=0.25), dragmode="turntable",
+                   camera=dict(eye=dict(x=0.0, y=-0.95, z=0.85), up=dict(x=0, y=0, z=1))),
+        paper_bgcolor=GROUND, plot_bgcolor=GROUND,
+        font=dict(family="Inter, -apple-system, Segoe UI, sans-serif", color=TEXT_SECONDARY, size=12),
+        margin=dict(l=0, r=0, t=34, b=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0, bgcolor="rgba(0,0,0,0)",
+                    font=dict(size=11, color=TEXT_SECONDARY)),
+        hoverlabel=dict(bgcolor="#111111", bordercolor="#303030",
+                        font=dict(family="IBM Plex Mono, Menlo, monospace", color=TEXT, size=11)),
+        uirevision="heliocentric", meta=dict(clock or {}, index=int(index)))
+    return figure
+
+
 # --------------------------------------------------------------------------
 # Time series
 # --------------------------------------------------------------------------

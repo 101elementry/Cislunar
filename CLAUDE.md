@@ -9,6 +9,7 @@ line in an examination, so clarity beats cleverness everywhere.
 - `engine/`  pure analysis. numpy arrays and plain values in and out.
   No file IO, no plotting, no Dash, no imports from `model/` or `app/`.
   Modules: crtbp, corrector, families, manifolds, stationkeeping,
+  lambert, interplanetary (Sun-centred, km and seconds, not LU/TU),
   ephemeris, estimation, observability, detection, rendezvous, kepler,
   frames, propagation, geometry, photometry, constraints, access.
 - `model/`   scenario dataclasses, JSON serialisation, family file

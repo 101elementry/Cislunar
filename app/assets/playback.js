@@ -169,8 +169,9 @@
       + pad(now.getUTCHours()) + ":" + pad(now.getUTCMinutes());
     var span = document.getElementById("time-readout");
     if (span) {
-      span.textContent = stamp + " UTC  (+" + (seconds / 86400).toFixed(3) + " d, "
-        + (seconds / 375190.26).toFixed(4) + " TU)";
+      // The Earth-Moon time unit means nothing in a Sun-centred scene, which sets meta.days_only.
+      span.textContent = stamp + " UTC  (+" + (seconds / 86400).toFixed(meta.days_only ? 0 : 3) + " d"
+        + (meta.days_only ? ")" : ", " + (seconds / 375190.26).toFixed(4) + " TU)");
     }
   }
 

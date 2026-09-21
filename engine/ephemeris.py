@@ -18,7 +18,9 @@ Conventions
     69.184 s offset valid since 2017 (37 leap seconds plus 32.184 s).
   * Positions are ICRF (J2000 equatorial) kilometres, velocities km/s.
   * Segment names: "emb" (solar-system barycentre to Earth-Moon
-    barycentre), "sun", "earth" and "moon" (barycentre to body).
+    barycentre), "sun", "earth" and "moon" (barycentre to body), and
+    optionally "mars" (solar-system barycentre to the Mars system
+    barycentre) for interplanetary work.
 """
 
 import numpy as np
@@ -134,6 +136,25 @@ class Ephemeris:
         z_axis = angular_momentum / np.linalg.norm(angular_momentum, axis=1)[:, np.newaxis]
         y_axis = np.cross(z_axis, x_axis)
         return np.stack([x_axis, y_axis, z_axis], axis=1)
+
+    def heliocentric_state(self, body, jd_tdb):
+        """
+        Position (n, 3) km and velocity (n, 3) km/s of "earth" or "mars"
+        relative to the Sun, ICRF axes.  Every segment is given from the
+        solar-system barycentre (the Earth through the Earth-Moon
+        barycentre), so the Sun's own barycentric state is subtracted.
+        """
+        sun_position, sun_velocity = self.segments["sun"].position_velocity(jd_tdb)
+        if body == "earth":
+            emb_position, emb_velocity = self.segments["emb"].position_velocity(jd_tdb)
+            earth_position, earth_velocity = self.segments["earth"].position_velocity(jd_tdb)
+            return emb_position + earth_position - sun_position, emb_velocity + earth_velocity - sun_velocity
+        if body == "mars":
+            if "mars" not in self.segments:
+                raise ValueError("this ephemeris extract has no Mars; rerun scripts/fetch_ephemeris.py")
+            mars_position, mars_velocity = self.segments["mars"].position_velocity(jd_tdb)
+            return mars_position - sun_position, mars_velocity - sun_velocity
+        raise ValueError(f"no heliocentric state for {body!r}")
 
     def earth_moon_distance_km(self, jd_tdb):
         """Real Earth-Moon distance (n,) km, for comparison with the fixed length unit."""

@@ -22,7 +22,9 @@ def load_ephemeris(path=EPHEMERIS_FILE):
         return None
     data = np.load(path)
     segments = {}
-    for name in ("emb", "sun", "earth", "moon"):
+    for name in ("emb", "sun", "earth", "moon", "mars"):
+        if f"{name}_coefficients" not in data:
+            continue    # an extract made before Mars was added; cislunar work does not need it
         segments[name] = ChebyshevSegment(data[f"{name}_init"], data[f"{name}_interval_days"],
                                           data[f"{name}_coefficients"])
     return Ephemeris(segments)

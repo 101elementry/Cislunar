@@ -43,6 +43,7 @@ python scripts/orbit_determination.py       # rung 2: batch, EKF, UKF and their 
 python scripts/geo_rendezvous.py            # GEO parking-orbit drift and two-burn rendezvous
 python scripts/elfo_drift.py                # how frozen a lunar frozen orbit stays
 python scripts/export_gmat.py               # GMAT script for a high-fidelity cross-check
+python scripts/mars_transfers.py            # Mars launch windows, porkchop plot, NRHO staging
 ```
 
 ## What the interface does
@@ -87,6 +88,21 @@ scene's frame menu gains "Relative to X (LVLH)" for each spacecraft,
 the view rendezvous is flown in, with a keep-out sphere around the
 target.  The Examples menu loads a chaser 50 km behind a Gateway-like
 target with a camera.
+
+## Earth-Mars transfers
+
+A separate, Sun-centred model for interplanetary legs, which the
+Earth-Moon three-body model cannot reach.  `engine/lambert.py` solves
+Lambert's problem (universal variables, checked against Curtis example
+5.2); `engine/interplanetary.py` does patched conics with planet
+positions from DE440 (`Ephemeris.heliocentric_state`; Mars is in the
+extract): launch energy, arrival speed, porkchop grids, and the
+departure burn from a low circular orbit against a burn at a low
+perigee reached from the Moon's distance, which is what staging in the
+NRHO buys.  `python scripts/mars_transfers.py` finds the windows from
+2030 to 2042, draws `fig12_mars_porkchop.png` and compares a long stay
+with a 30-sol stay.  The burn that leaves the NRHO and lowers the
+perigee is a three-body problem and is not yet included.
 
 ## Access constraints
 
