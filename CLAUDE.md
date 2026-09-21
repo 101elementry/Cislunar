@@ -19,6 +19,10 @@ line in an examination, so clarity beats cleverness everywhere.
 - `app/`     Dash interface and Plotly figure builders. Callbacks only
   read the model and call the runner, `model.orbits`, `model.sweep` or
   engine frame conversions; no physics or geometry inside a callback.
+  `app/scene.py` builds the 3D scene for both the interface and
+  `app/showcase.py`, which writes the static pages in `site/`
+  (stylesheet and script in `app/showcase_assets/`, not `app/assets/`,
+  because Dash loads everything in `assets/` into the interface).
 - `scripts/` GUI-free worked examples; import only `model` and `engine`.
 - `validate.py`, `plots.py`, `build_families.py` at the root are the
   thesis checks, the matplotlib figures, and the extra family builder.
@@ -81,6 +85,7 @@ python validate.py                          # checks + family file (~20 s)
 python build_families.py                    # other families (~10 s)
 python plots.py                             # thesis figures
 python -m app.main                          # GUI at http://127.0.0.1:8050
+python -m app.showcase                      # rebuild the static showcase in site/
 python scripts/<example>.py                 # see README for the list
 python scripts/fetch_ephemeris.py           # rebuild data/de440_ephemeris.npz (downloads 32 MB once)
 python scripts/simulate_observations.py     # rung 1

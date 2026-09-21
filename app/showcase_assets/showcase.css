@@ -1,0 +1,330 @@
+/* Static showcase pages (python -m app.showcase writes them to site/).
+
+   The same night console as the interface (app/assets/style.css): deep
+   space ground, panels like instrument faces, earthshine blue for the
+   primary trajectory and action, sunlight gold for the ground station,
+   regolith grey for the Moon, red leaves an orbit and green arrives. */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&display=swap');
+
+:root {
+  --ground: #0b0e14;
+  --panel: #121722;
+  --panel-raised: #171d2a;
+  --panel-inset: #0e121b;
+  --border: #232b3a;
+  --border-strong: #2f3a4e;
+  --text: #e7eaf0;
+  --text-secondary: #9aa4b5;
+  --text-muted: #66718a;
+  --earthshine: #6fb1ff;
+  --earthshine-soft: rgba(111, 177, 255, 0.14);
+  --earthshine-line: rgba(111, 177, 255, 0.45);
+  --regolith: #d9d3c4;
+  --stable: #43d19a;
+  --stable-soft: rgba(67, 209, 154, 0.16);
+  --radius: 12px;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 10px 30px rgba(0, 0, 0, 0.35);
+  --font: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-condensed: "IBM Plex Sans Condensed", "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+  color-scheme: dark;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 520px at 72% -12%, rgba(111, 177, 255, 0.09), transparent 60%),
+    radial-gradient(900px 420px at 0% 110%, rgba(217, 211, 196, 0.04), transparent 60%),
+    var(--ground);
+  background-attachment: fixed;
+}
+
+a { color: var(--earthshine); text-decoration: none; }
+a:hover { text-decoration: underline; }
+*:focus-visible { outline: 2px solid var(--earthshine); outline-offset: 2px; }
+
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+p { margin: 0 0 1em; }
+
+.kicker {
+  margin: 0 0 8px;
+  font-family: var(--font-condensed);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--earthshine);
+}
+
+/* ---- top bar and footer ---------------------------------------------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 18px 20px 6px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-family: var(--font-condensed);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.brand:hover { text-decoration: none; color: var(--earthshine); }
+
+/* A small crescent: the Moon lit from one side. */
+.brand-mark {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--regolith);
+  box-shadow: inset -5px 0 0 0 var(--ground), 0 0 0 1px var(--border-strong);
+}
+
+.pager { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.pager a {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--panel);
+}
+.pager a:hover { color: var(--text); border-color: var(--earthshine-line); text-decoration: none; }
+
+.footer {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 28px 20px 36px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* ---- index page ------------------------------------------------------- */
+
+.index-page { max-width: 1320px; margin: 0 auto; padding: 0 20px; }
+
+.hero { max-width: 820px; padding: 56px 0 40px; }
+.hero h1 { font-size: clamp(32px, 5vw, 54px); line-height: 1.08; margin-bottom: 20px; }
+.lede { font-size: 17px; color: var(--text-secondary); margin: 0; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  display: block;
+  padding: 14px 16px 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+.card:hover { text-decoration: none; transform: translateY(-3px); border-color: var(--earthshine-line); }
+.card h2 { font-size: 18px; margin-bottom: 6px; }
+.card p:last-child { margin: 0; color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+.card .kicker { font-size: 11px; margin-bottom: 4px; }
+
+.thumb {
+  margin: -2px -4px 14px;
+  border-radius: 8px;
+  background:
+    radial-gradient(260px 140px at 60% 40%, rgba(111, 177, 255, 0.08), transparent 70%),
+    var(--panel-inset);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.thumb svg { display: block; width: 100%; height: auto; }
+
+.method { padding: 56px 0 8px; }
+.method > h2 { font-size: 22px; margin-bottom: 18px; }
+.method-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.method-grid > div {
+  padding: 16px 18px;
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.method-grid h3 {
+  font-family: var(--font-condensed);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.method-grid p { margin: 0; color: var(--text-secondary); font-size: 14px; }
+.fine { margin: 18px 0 0; color: var(--text-muted); font-size: 13px; max-width: 820px; }
+
+/* ---- scene page ------------------------------------------------------- */
+
+.scene-page { max-width: 1320px; margin: 0 auto; padding: 0 20px; }
+
+.intro { padding: 26px 0 18px; max-width: 900px; }
+.intro h1 { font-size: clamp(26px, 3.6vw, 40px); line-height: 1.12; margin-bottom: 10px; }
+.tagline { margin: 0; color: var(--text-secondary); font-size: 16px; }
+
+.stage { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.stage.split { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.view {
+  position: relative;
+  margin: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.view figcaption {
+  position: absolute;
+  z-index: 2;
+  right: 12px;
+  bottom: 10px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(11, 14, 20, 0.72);
+  border: 1px solid var(--border);
+  font-family: var(--font-condensed);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+.holder { height: min(68vh, 720px); min-height: 420px; }
+.holder .plot, .series .plot { width: 100%; height: 100%; }
+
+.transport {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.play {
+  min-width: 84px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--earthshine-line);
+  background: var(--earthshine-soft);
+  color: var(--earthshine);
+  font: 600 13px var(--font);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.play:hover { background: rgba(111, 177, 255, 0.22); }
+.play.playing { background: var(--earthshine); color: #06101f; border-color: var(--earthshine); }
+
+.speed { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 12px; }
+.speed select {
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel-inset);
+  color: var(--text);
+  font: 13px var(--font);
+}
+
+#scrubber { flex: 1 1 220px; min-width: 160px; accent-color: var(--earthshine); }
+
+.readout { font-family: var(--mono); font-size: 12.5px; color: var(--text-secondary); white-space: nowrap; }
+
+.access-light {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  font-family: var(--font-condensed);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.access-light::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+.access-light.on { color: var(--stable); border-color: rgba(67, 209, 154, 0.5); background: var(--stable-soft); }
+.access-light.on::before { background: var(--stable); box-shadow: 0 0 10px var(--stable); }
+
+.series {
+  height: 230px;
+  margin-top: 12px;
+  padding: 6px 8px 2px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.notes {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 40px;
+  padding: 40px 0 8px;
+}
+.notes h2 {
+  font-family: var(--font-condensed);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+.prose p { color: var(--text-secondary); font-size: 16px; max-width: 68ch; }
+.side ul { margin: 0 0 28px; padding-left: 18px; color: var(--text-secondary); font-size: 14px; }
+.side li { margin-bottom: 8px; }
+
+.facts { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.facts th, .facts td { padding: 8px 0; border-top: 1px solid var(--border); text-align: left; vertical-align: top; }
+.facts th { width: 42%; padding-right: 12px; color: var(--text-muted); font-weight: 500; }
+.facts td { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+.hint { margin: 18px 0 0; color: var(--text-muted); font-size: 13px; }
+
+/* ---- narrow screens --------------------------------------------------- */
+
+@media (max-width: 860px) {
+  .stage.split { grid-template-columns: minmax(0, 1fr); }
+  .holder { height: 56vh; min-height: 340px; }
+  .notes { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-top: 28px; }
+  .series { height: 280px; }
+}
+
+@media (max-width: 520px) {
+  .topbar, .index-page, .scene-page, .footer { padding-left: 16px; padding-right: 16px; }
+  .hero { padding: 36px 0 28px; }
+  .readout { white-space: normal; }
+  .pager a { padding: 6px 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card { transition: none; }
+}

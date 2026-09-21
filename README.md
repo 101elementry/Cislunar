@@ -29,6 +29,7 @@ python validate.py                          # checks + output/halo_family.npz (~
 python build_families.py                    # L1 halos, northern halos, Lyapunov, DRO (~10 s)
 python plots.py                             # thesis figures in output/
 python -m app.main                          # interface at http://127.0.0.1:8050
+python -m app.showcase                      # static pages in site/ (~5 s)
 ```
 
 Worked examples, all GUI-free, each writing a CSV to `output/`:
@@ -57,6 +58,20 @@ read access windows, per-constraint pass fractions, multi-station
 coverage, time series, and the 3D scene in rotating or inertial frames
 with optional stable and unstable manifolds.  A sweep panel runs the
 scenario across a range of one setting and tabulates the results.
+
+## Static showcase
+
+`python -m app.showcase` runs five fixed scenarios and writes them to
+`site/` as plain web pages: the halo family tipping into the NRHO, the
+manifolds of a halo orbit, a DRO in rotating and inertial frames, a
+month of access windows from Sydney, and a lunar south pole relay
+orbit.  The pages hold the same Plotly figures as the interface
+(`app/scene.py`) and reuse its playback and zoom scripts, so each scene
+rotates, zooms toward the cursor and plays like a video, but nothing
+can be edited because no Python runs behind them.  Open
+`site/index.html`, or host the folder on any static host (on Vercel set
+the project's root directory to `site` with no build command).  The
+folder is committed; rebuild it after changing a scene or a figure.
 
 ## Access constraints
 

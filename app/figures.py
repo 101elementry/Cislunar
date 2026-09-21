@@ -236,6 +236,12 @@ def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, st
     window_points.append(body_now("moon") + body_radii["moon"])
     if points:
         window_points.extend(points.values())
+    if manifolds:
+        # Manifold branches travel far from their orbit; without them in
+        # the window the tubes spill out of the axes box.
+        for kinds in manifolds.values():
+            for branches in kinds.values():
+                window_points.extend(branch["states"][:, :3] for branch in branches)
     if view == "system":
         window_points.append(body_now("earth") - body_radii["earth"])
         window_points.append(body_now("earth") + body_radii["earth"])
