@@ -10,6 +10,7 @@ line in an examination, so clarity beats cleverness everywhere.
   No file IO, no plotting, no Dash, no imports from `model/` or `app/`.
   Modules: crtbp, corrector, families, manifolds, stationkeeping,
   lambert, interplanetary (Sun-centred, km and seconds, not LU/TU),
+  transfers (parking orbit to target, Lambert seed then correction),
   ephemeris, estimation, observability, detection, rendezvous, kepler,
   frames, propagation, geometry, photometry, constraints, access.
 - `model/`   scenario dataclasses, JSON serialisation, family file
@@ -68,6 +69,9 @@ must print nothing.
   elements about centre "moon" or "earth", reference plane "moon orbit"
   or "earth equator"), "relative" (an LVLH offset from the spacecraft
   named in relative_to, about `centre`; always integrated).
+- A Spacecraft may carry `burns` ({time_days, delta_v_m_s} in the
+  rotating frame); it is then integrated leg by leg.  `scenarios/`
+  holds the mission examples written by scripts/artemis_profile.py.
 - Observers: a sensor's `station` field names its host, a ground
   station or a spacecraft.  `runner.observers` yields (name, host,
   sensor); check `host.kind`.  A spacecraft host uses

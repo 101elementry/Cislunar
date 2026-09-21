@@ -302,6 +302,89 @@ def scene_proximity():
             "facts": facts}
 
 
+def burn_facts(scenario, vehicle_name):
+    """Arrival burn of the vehicle as text, from the scenario's burn list."""
+    vehicle = scenario.spacecraft_named(vehicle_name)
+    burn = vehicle.burns[0]
+    return burn["time_days"], float(np.linalg.norm(burn["delta_v_m_s"]))
+
+
+def scene_lander():
+    scenario = Scenario.load(os.path.join(REPOSITORY_ROOT, "scenarios", "lander_to_nrho.json"))
+
+    def facts(results):
+        days, insertion = burn_facts(scenario, "Lander")
+        separation = np.linalg.norm(results["trajectories"]["Lander"][:, :3] - results["trajectories"]["Gateway"][:, :3], axis=1)
+        return [("Parking orbit", "100 km circular, polar"),
+                ("Transfer time", f"{days * 24.0:.0f} hours"),
+                ("Burn on arrival", f"{insertion:.0f} m/s, matching the Gateway's velocity"),
+                ("Separation after the arrival burn", f"{crtbp.length_to_km(separation[-1]):.1f} km at the end of the run"),
+                ("Total for the leg", "see output/artemis_profile.csv; about 700 m/s with the departure burn")]
+
+    return {"slug": "lander-ascent", "kicker": "Crewed missions", "title": "A lander climbs to the NRHO",
+            "tagline": "From a 100 km polar lunar orbit to a rendezvous with the Gateway orbit in half a day.",
+            "scenario": scenario, "views": [("moon_rotating", "moon", "none"), ("lvlh:Gateway", "moon", "none")],
+            "pair": None,
+            "paragraphs": [
+                "This is the ascent leg of a lunar landing mission. The lander has left the surface and waits "
+                "in a low polar orbit. It burns once to leave that orbit, coasts for about twelve hours, and "
+                "burns again to match the velocity of the station on the NRHO. The scene starts just after the "
+                "first burn. The descent to the surface is the same transfer flown in reverse.",
+                "The transfer was found in two steps. Lambert's problem about the Moon alone gives a first "
+                "guess, with the departure point chosen so that the burn is along the direction of travel. "
+                "That guess is then corrected with the full Earth-Moon equations, because twelve hours is long "
+                "enough for the Earth to pull the path off a two-body ellipse. Without the first guess the "
+                "same corrector settles on a transfer five times more expensive.",
+                "The cheap route arrives just after the station passes perilune, its closest point to the "
+                "Moon. Arriving elsewhere on the NRHO costs up to four times as much."],
+            "look_for": [
+                "On the right the view rides with the station. The lander closes from thousands of kilometres "
+                "and stops at the origin when the arrival burn matches velocities.",
+                "The red dotted sphere is a 10 km keep-out zone. A real approach would hold outside it and "
+                "continue in small steps.",
+                "After arrival the two markers stay together, which is the check that the second burn is right."],
+            "facts": facts}
+
+
+def scene_crew():
+    scenario = Scenario.load(os.path.join(REPOSITORY_ROOT, "scenarios", "crew_to_nrho.json"))
+    pair = ("Sydney 0.5 m telescope", "Crew vehicle")
+
+    def facts(results):
+        days, insertion = burn_facts(scenario, "Crew vehicle")
+        windows = results["windows"][pair]
+        return [("Parking orbit", "200 km circular Earth orbit"),
+                ("Transfer time", f"{days:.0f} days"),
+                ("NRHO insertion burn", f"{insertion:.0f} m/s, direct"),
+                ("Sydney access windows on the vehicle", f"{len(windows)} during the run"),
+                ("Fraction of the run observable", f"{100.0 * results['duty_cycle'][pair]:.0f} %")]
+
+    return {"slug": "crew-transfer", "kicker": "Crewed missions", "title": "A crew vehicle flies to the NRHO",
+            "tagline": "From low Earth orbit to the Gateway orbit, tracked from a telescope in Sydney on the way.",
+            "scenario": scenario, "views": [("rotating", "system", "none"), ("earth_inertial", "system", "none")],
+            "pair": pair, "access_text": "Sydney sees the vehicle",
+            "paragraphs": [
+                "A crew vehicle leaves a 200 km Earth orbit with a single burn of about 3.1 km/s, the "
+                "trans-lunar injection. It coasts for several days and burns again to enter the NRHO beside "
+                "the station. The scene starts just after the first burn. The left panel turns with the "
+                "Moon, so the transfer curves; the right panel is fixed to the stars and shows the same path "
+                "as the long ellipse it nearly is.",
+                "This is the simple two-burn version. Flown missions add a close, powered pass of the Moon on "
+                "the way in, which roughly halves the insertion burn at the price of another manoeuvre and a "
+                "tighter navigation problem.",
+                "The strip below shows when a half metre telescope in Sydney could see the vehicle during the "
+                "coast. Close to the Earth it is bright but moves quickly and spends much of its time in "
+                "daylight or below the horizon. Near the Moon it is faint and close to the Moon's glare. "
+                "Tracking an outbound vehicle from the ground with angles alone is the same estimation "
+                "problem as tracking the station, with far less time to solve it."],
+            "look_for": [
+                "The access light shows when Sydney can observe the vehicle.",
+                "After the insertion burn the vehicle and the station move together round the NRHO.",
+                "In the inertial panel the Moon arrives at the meeting point at the same moment as the vehicle. "
+                "The transfer is aimed at where the Moon will be."],
+            "facts": facts}
+
+
 def thumbnail_top_down(paths, colors, size=(320, 200)):
     """SVG of paths seen from above the x-y plane, with a dot at the origin for the Sun."""
     everything = np.vstack([path[:, :2] for path in paths.values()])
@@ -371,7 +454,7 @@ def scene_mars_transfer():
 
 
 SCENES = [scene_halo_to_nrho, scene_manifolds, scene_dro_two_frames, scene_sydney_tracking,
-          scene_proximity, scene_lunar_relay, scene_mars_transfer]
+          scene_proximity, scene_lander, scene_crew, scene_lunar_relay, scene_mars_transfer]
 
 
 # --------------------------------------------------------------------------

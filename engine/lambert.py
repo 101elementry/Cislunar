@@ -54,7 +54,7 @@ def stumpff_s(z):
     return 1.0 / 6.0 - z / 120.0 + z ** 2 / 5040.0
 
 
-def solve(r1, r2, time_of_flight, mu, prograde=True, tolerance=1e-10, max_iterations=200):
+def solve(r1, r2, time_of_flight, mu, prograde=True, normal=None, tolerance=1e-10, max_iterations=200):
     """
     Velocities (v1, v2) at the two ends of the single-revolution transfer
     from position r1 to position r2 in time_of_flight.
@@ -65,6 +65,10 @@ def solve(r1, r2, time_of_flight, mu, prograde=True, tolerance=1e-10, max_iterat
     prograde       : True for a transfer that goes round in the same
                      sense as the planets (angular momentum along +z),
                      False for the other way round
+    normal         : optional (3,) direction of the transfer's angular
+                     momentum.  When given it replaces +z in deciding
+                     which way round to go, which is needed for polar
+                     orbits, whose normal has no z component.
 
     Raises ValueError if the geometry is degenerate (the two positions
     and the central body in one line, where the orbit plane is
@@ -79,7 +83,8 @@ def solve(r1, r2, time_of_flight, mu, prograde=True, tolerance=1e-10, max_iterat
     # the retrograde way round according to the sign of (r1 x r2)_z.
     cos_dtheta = np.clip(np.dot(r1, r2) / (r1_norm * r2_norm), -1.0, 1.0)
     dtheta = np.arccos(cos_dtheta)
-    normal_z = np.cross(r1, r2)[2]
+    reference = np.array([0.0, 0.0, 1.0]) if normal is None else np.asarray(normal, dtype=float)
+    normal_z = np.dot(np.cross(r1, r2), reference)
     if (prograde and normal_z < 0.0) or (not prograde and normal_z >= 0.0):
         dtheta = 2.0 * np.pi - dtheta
 

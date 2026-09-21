@@ -42,6 +42,13 @@ def spacecraft_trajectory(spacecraft, times_nondim, families=None, epoch_jd=None
     """
     families = as_families(families)
     state0 = orbits.initial_state(spacecraft, families, epoch_jd, ephemeris, companions)
+    if len(spacecraft.burns) > 0:
+        # Burns are given in days and m/s; the engine works in TU and LU/TU.
+        ordered = sorted(spacecraft.burns, key=lambda burn: burn["time_days"])
+        burn_times = [crtbp.time_to_nondim(burn["time_days"] * crtbp.SECONDS_PER_DAY) for burn in ordered]
+        burn_delta_vs = [crtbp.velocity_to_nondim(np.array(burn["delta_v_m_s"], dtype=float) / 1000.0)
+                         for burn in ordered]
+        return propagation.propagate_with_burns(state0, times_nondim, burn_times, burn_delta_vs)
     period = orbits.period(spacecraft, families)
     if spacecraft.propagation == "periodic" and period is not None:
         return propagation.propagate_periodic(state0, period, times_nondim)

@@ -60,6 +60,10 @@ class Spacecraft:
                    along the orbit and how long each branch is followed.
     keep_out_radius_km : radius of the keep-out sphere drawn around this
                    spacecraft in a relative-motion view (0 for none).
+    burns        : impulsive burns flown during the run, a list of
+                   {"time_days": days after the epoch,
+                    "delta_v_m_s": [x, y, z] in the rotating frame}.
+                   A spacecraft with burns is always integrated.
     """
     name: str
     source: str = "state"
@@ -80,6 +84,7 @@ class Spacecraft:
     relative_position_km: list = field(default_factory=lambda: [0.0, -50.0, 0.0])
     relative_velocity_m_s: list = field(default_factory=lambda: [0.0, 0.0, 0.0])
     keep_out_radius_km: float = 0.0
+    burns: list = field(default_factory=list)
 
     kind = "spacecraft"
 

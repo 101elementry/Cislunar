@@ -35,13 +35,16 @@ from engine import crtbp
 from engine.crtbp import MU
 
 
-def targeting_manoeuvre(state, target_position, transfer_time, mu=MU, iterations=4):
+def targeting_manoeuvre(state, target_position, transfer_time, mu=MU, iterations=4, initial_delta_v=None):
     """
     Impulsive velocity change (3,) in LU/TU that makes a state arrive at
     target_position after transfer_time.  A few Newton steps on the
-    position error using the STM's position-velocity block.
+    position error using the STM's position-velocity block.  Station
+    keeping starts from no burn; a large transfer needs a first guess
+    (initial_delta_v, for example from Lambert's problem) because Newton
+    iteration only finds the solution nearest to where it starts.
     """
-    delta_v = np.zeros(3)
+    delta_v = np.zeros(3) if initial_delta_v is None else np.array(initial_delta_v, dtype=float)
     for _ in range(iterations):
         departed = state.copy()
         departed[3:] = departed[3:] + delta_v

@@ -16,6 +16,7 @@ the figure builders.  Nothing here computes physics or geometry.
 
 import base64
 import json
+import os
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -118,7 +119,9 @@ dash_app.layout = html.Div([
         html.Div([
             dcc.Dropdown(id="example-select", className="dash-dropdown narrow", placeholder="Examples", value=None,
                          options=[{"label": "NRHO from Sydney", "value": "ground"},
-                                  {"label": "NRHO proximity (chaser camera)", "value": "rendezvous"}]),
+                                  {"label": "NRHO proximity (chaser camera)", "value": "rendezvous"},
+                                  {"label": "Lander, lunar orbit to NRHO", "value": "file:lander_to_nrho.json"},
+                                  {"label": "Crew vehicle, Earth orbit to NRHO", "value": "file:crew_to_nrho.json"}]),
             html.Button("Run analysis", id="run-button", className="primary", n_clicks=0),
             html.Button("Save", id="save-button", n_clicks=0),
             dcc.Upload(html.Div("Load", className="upload-box"), id="load-upload", multiple=False),
@@ -373,6 +376,19 @@ def parse_state_text(text):
     return values
 
 
+def parse_burns_text(text):
+    """'day, dvx, dvy, dvz; day, dvx, dvy, dvz' to the list of burn dictionaries a Spacecraft holds."""
+    burns = []
+    for entry in (text or "").split(";"):
+        if entry.strip() == "":
+            continue
+        numbers = [float(part) for part in entry.replace(",", " ").split()]
+        if len(numbers) != 4:
+            raise ValueError("each burn needs a day and three delta-v components")
+        burns.append({"time_days": numbers[0], "delta_v_m_s": numbers[1:]})
+    return burns
+
+
 def pair_key(option_value):
     """Dropdown values are 'observer|spacecraft' strings; results use tuples."""
     observer, _, spacecraft = option_value.partition("|")
@@ -577,6 +593,11 @@ def spacecraft_form(obj, scenario):
                                                               type="number", min=0.1))],
                            className="form-row three"))
     fields.append(html.Span("Manifolds are drawn for periodic orbits only.", className="hint"))
+    burn_text = "; ".join(f"{burn['time_days']:g}, " + ", ".join(f"{value:.3f}" for value in burn["delta_v_m_s"])
+                          for burn in obj.burns)
+    fields.append(field("Burns  day, dvx, dvy, dvz [m/s]; ...", prop_input("burns", burn_text, type="text", className="mono"),
+                        hint="impulsive burns during the run, rotating-frame components, separated by semicolons; "
+                             "a spacecraft with burns is always integrated"))
     fields.append(field("Keep-out radius [km]", prop_input("keep_out_radius_km", obj.keep_out_radius_km,
                                                            type="number", min=0),
                         hint="drawn around this spacecraft in a relative-motion view; 0 for none"))
@@ -694,6 +715,12 @@ def apply_form_values(scenario, obj, prop_values, prop_ids):
                 obj.centre = value
             continue
         if key == "centre" and values.get("source") == "relative":
+            continue
+        if key == "burns":
+            try:
+                obj.burns = parse_burns_text(value)
+            except ValueError:
+                pass
             continue
         if key == "initial_state":
             try:
@@ -860,7 +887,14 @@ def edit_scenario(tree_clicks, add_clicks, add_range_clicks, remove_clicks, appl
     if trigger == "example-select":
         if example is None:
             return (no_update, no_update) + settings_unchanged + (no_status,)
-        loaded = rendezvous_example() if example == "rendezvous" else example_scenario()
+        if example.startswith("file:"):
+            path = os.path.join("scenarios", example[len("file:"):])
+            if not os.path.exists(path):
+                return (no_update, no_update) + settings_unchanged + (status_message(
+                    "Run python scripts/artemis_profile.py once to create this example.", "warn"),)
+            loaded = Scenario.load(path)
+        else:
+            loaded = rendezvous_example() if example == "rendezvous" else example_scenario()
         return (loaded.to_dict(), None, loaded.name, loaded.epoch_utc, loaded.duration_days, loaded.time_step_s,
                 status_message("Example loaded. Press Run analysis."))
 

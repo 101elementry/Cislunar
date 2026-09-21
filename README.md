@@ -44,6 +44,7 @@ python scripts/geo_rendezvous.py            # GEO parking-orbit drift and two-bu
 python scripts/elfo_drift.py                # how frozen a lunar frozen orbit stays
 python scripts/export_gmat.py               # GMAT script for a high-fidelity cross-check
 python scripts/mars_transfers.py            # Mars launch windows, porkchop plot, NRHO staging
+python scripts/artemis_profile.py           # lander and crew legs to the NRHO (about 20 minutes)
 ```
 
 ## What the interface does
@@ -88,6 +89,23 @@ scene's frame menu gains "Relative to X (LVLH)" for each spacecraft,
 the view rendezvous is flown in, with a keep-out sphere around the
 target.  The Examples menu loads a chaser 50 km behind a Gateway-like
 target with a camera.
+
+## Crewed mission legs
+
+`engine/transfers.py` finds two-burn transfers from a circular parking
+orbit about the Moon or the Earth to a moving target: a Lambert seed
+about the parking body, with the departure point chosen so the burn is
+tangential, corrected in the full three-body equations.  A spacecraft
+can carry a list of impulsive `burns` (day, rotating-frame delta-v in
+m/s), flown by `engine.propagation.propagate_with_burns`.
+`python scripts/artemis_profile.py` scans the lander leg (100 km polar
+lunar orbit to the NRHO, about 700 m/s in half a day, arriving just
+after perilune) and the crew leg (200 km Earth orbit to the NRHO,
+direct), and writes `scenarios/lander_to_nrho.json` and
+`scenarios/crew_to_nrho.json`, which the Examples menu loads: the
+station, the vehicle with its arrival burn, and the Sydney telescope
+watching both.  A flown crew mission adds a powered lunar flyby, which
+this direct transfer does not model.
 
 ## Earth-Mars transfers
 
