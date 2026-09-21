@@ -3,6 +3,8 @@ Observer-to-target geometry on a time grid.
 
 `observation_geometry` turns a station, a spacecraft trajectory and the
 Julian dates of the grid into a GeometrySeries: one array per quantity.
+`space_observation_geometry` does the same for an observer that is
+itself a spacecraft (a camera on a chaser looking at a target).
 `GeometrySeries.at(index)` gives the scalar StepGeometry for one time
 step, which is what the access constraints consume.
 """
@@ -30,6 +32,12 @@ class StepGeometry:
     in_shadow: bool
     apparent_magnitude: float
     los_rate_deg_s: float
+    # Angles at the observer between the line of sight and the Sun and
+    # the Earth.  A camera cannot look close to the Sun, and a bright
+    # Earth behind the target washes it out.  For an observer in space
+    # elevation_deg and sun_elevation_deg have no meaning and are NaN.
+    sun_separation_deg: float = float("nan")
+    earth_separation_deg: float = float("nan")
 
 
 @dataclass
@@ -44,6 +52,15 @@ class GeometrySeries:
     in_shadow: np.ndarray
     apparent_magnitude: np.ndarray
     los_rate_deg_s: np.ndarray
+    sun_separation_deg: np.ndarray = None
+    earth_separation_deg: np.ndarray = None
+
+    def __post_init__(self):
+        # Series built before these two angles existed carry NaN for them.
+        if self.sun_separation_deg is None:
+            self.sun_separation_deg = np.full(len(self.time_s), np.nan)
+        if self.earth_separation_deg is None:
+            self.earth_separation_deg = np.full(len(self.time_s), np.nan)
 
     def __len__(self):
         return len(self.time_s)
@@ -58,7 +75,9 @@ class GeometrySeries:
                             phase_angle_deg=float(self.phase_angle_deg[index]),
                             in_shadow=bool(self.in_shadow[index]),
                             apparent_magnitude=float(self.apparent_magnitude[index]),
-                            los_rate_deg_s=float(self.los_rate_deg_s[index]))
+                            los_rate_deg_s=float(self.los_rate_deg_s[index]),
+                            sun_separation_deg=float(self.sun_separation_deg[index]),
+                            earth_separation_deg=float(self.earth_separation_deg[index]))
 
 
 # --------------------------------------------------------------------------
@@ -164,4 +183,61 @@ def observation_geometry(station_latitude_deg, station_longitude_deg, station_al
                           phase_angle_deg=phase_angle,
                           in_shadow=shadowed,
                           apparent_magnitude=photometry.apparent_magnitude(range_km, diameter_m, albedo, phase_angle),
-                          los_rate_deg_s=angular_rate_deg_s(line_of_sight_unit, times_s))
+                          los_rate_deg_s=angular_rate_deg_s(line_of_sight_unit, times_s),
+                          sun_separation_deg=angle_between_deg(line_of_sight_unit, sun_direction),
+                          earth_separation_deg=np.full(len(positions), np.nan))
+
+
+def space_observation_geometry(observer_states, target_states, times_s, jd, diameter_m, albedo,
+                               mu=crtbp.MU, ephemeris=None):
+    """
+    Geometry of one spacecraft observing another over a grid: a camera
+    on a chaser looking at a target.
+
+    observer_states, target_states : (n, 6) rotating-frame states on the
+                                     same grid, LU and LU/TU
+    times_s, jd                    : (n,) seconds past epoch, Julian dates
+    diameter_m, albedo             : diffuse-sphere parameters of the target
+    ephemeris                      : optional engine.ephemeris.Ephemeris
+
+    The line of sight runs from the observer to the target.  The Sun is
+    so far away that its direction is the same from both spacecraft.
+    There is no horizon and no night in space, so elevation_deg and
+    sun_elevation_deg are NaN; what limits a camera instead is how close
+    to the Sun, the Moon or the Earth it has to point, and whether the
+    target is lit.
+
+    The line-of-sight rate is measured in the rotating frame, which
+    turns once in 27.3 days (0.00015 deg/s); next to the rates of a
+    close approach that is negligible.
+
+    Returns a GeometrySeries.
+    """
+    points = propagation.fixed_points(mu)
+    sun_direction = frames.sun_direction_rotating(jd, ephemeris)
+
+    observer_positions = observer_states[:, :3]
+    target_positions = target_states[:, :3]
+    line_of_sight_unit, range_nd = unit_vectors(target_positions - observer_positions)
+    moon_direction_unit, _ = unit_vectors(points["moon"] - observer_positions)
+    earth_direction_unit, _ = unit_vectors(points["earth"] - observer_positions)
+
+    shadowed = (in_cylindrical_shadow(target_positions, sun_direction, points["earth"], frames.EARTH_RADIUS_ND)
+                | in_cylindrical_shadow(target_positions, sun_direction, points["moon"], crtbp.MOON_RADIUS_ND))
+
+    # Phase angle at the target between the Sun and the observer.
+    phase_angle = angle_between_deg(sun_direction, -line_of_sight_unit)
+    range_km = crtbp.length_to_km(range_nd)
+    nan = np.full(len(target_positions), np.nan)
+
+    return GeometrySeries(time_s=np.asarray(times_s, dtype=float),
+                          elevation_deg=nan,
+                          sun_elevation_deg=nan.copy(),
+                          range_km=range_km,
+                          lunar_separation_deg=angle_between_deg(line_of_sight_unit, moon_direction_unit),
+                          phase_angle_deg=phase_angle,
+                          in_shadow=shadowed,
+                          apparent_magnitude=photometry.apparent_magnitude(range_km, diameter_m, albedo, phase_angle),
+                          los_rate_deg_s=angular_rate_deg_s(line_of_sight_unit, times_s),
+                          sun_separation_deg=angle_between_deg(line_of_sight_unit, sun_direction),
+                          earth_separation_deg=angle_between_deg(line_of_sight_unit, earth_direction_unit))

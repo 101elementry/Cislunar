@@ -277,6 +277,128 @@ def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, st
     return figure
 
 
+def wire_sphere(radius, color, name, n_circles=3, n_points=72):
+    """Three great circles of a sphere about the origin as one line trace: a light keep-out marker."""
+    angle = np.linspace(0.0, 2.0 * np.pi, n_points)
+    zero = np.zeros_like(angle)
+    gap = np.array([np.nan])
+    circles = [(np.cos(angle), np.sin(angle), zero), (np.cos(angle), zero, np.sin(angle)),
+               (zero, np.cos(angle), np.sin(angle))][:n_circles]
+    x = np.concatenate([np.concatenate([radius * c[0], gap]) for c in circles])
+    y = np.concatenate([np.concatenate([radius * c[1], gap]) for c in circles])
+    z = np.concatenate([np.concatenate([radius * c[2], gap]) for c in circles])
+    return go.Scatter3d(x=x, y=y, z=z, mode="lines", name=name, hoverinfo="name",
+                        line=dict(width=1.5, color=color, dash="dot"))
+
+
+def relative_figure(relative_paths_km, target_name, index=0, keep_out_radius_km=0.0, centre="moon",
+                    trail_samples=0, clock=None):
+    """
+    Relative-motion view: every other spacecraft in the LVLH frame of a
+    target, which sits at the origin.  This is the picture rendezvous is
+    flown in.
+
+    relative_paths_km  : {name: (n, 3)} radial, along-track, cross-track
+                         position of each spacecraft relative to the
+                         target, km (engine.rendezvous.relative_motion_lvlh)
+    target_name        : name shown at the origin
+    index              : time index of the current-time markers
+    keep_out_radius_km : radius of the keep-out sphere around the target
+    centre             : body the LVLH frame is defined about, for labels
+    trail_samples, clock : as in trajectory_figure
+
+    Plot axes: x is along-track (V-bar), y is cross-track (H-bar) and z
+    is radial (R-bar, positive away from the body), so the orbit plane
+    is the x-z plane and "behind the target" is negative x.  Traces carry
+    the same meta roles as trajectory_figure, so the playback script
+    moves them without knowing which kind of view it is.
+    """
+    figure = go.Figure()
+
+    def plot_axes(path_km):
+        """Columns radial, along, cross reordered to plot x, y, z."""
+        return path_km[:, 1], path_km[:, 2], path_km[:, 0]
+
+    window_points = []
+    for k, (name, path_km) in enumerate(relative_paths_km.items()):
+        color = SPACECRAFT_COLORS[(k + 1) % len(SPACECRAFT_COLORS)]
+        stride = max(1, int(np.ceil(len(path_km) / MAX_PLOT_POINTS)))
+        x, y, z = plot_axes(path_km[::stride])
+        window_points.append(np.column_stack(plot_axes(path_km)))
+        figure.add_trace(go.Scatter3d(x=x, y=y, z=z, mode="lines", name=name,
+                                      line=dict(width=2.0, color=color), opacity=0.6,
+                                      meta={"role": "path", "spacecraft": name, "stride": stride},
+                                      hovertemplate=(f"{name}<br>along-track %{{x:.1f}} km<br>cross-track %{{y:.1f}} km"
+                                                     "<br>radial %{z:.1f} km<extra></extra>")))
+        if trail_samples > 0:
+            picks = np.clip(np.arange(index - trail_samples, index + 1), 0, len(path_km) - 1)
+            tx, ty, tz = plot_axes(path_km[picks])
+            fade = np.linspace(0.0, 1.0, len(picks))
+            figure.add_trace(go.Scatter3d(x=tx, y=ty, z=tz, mode="lines", showlegend=False, hoverinfo="skip",
+                                          meta={"role": "trail", "spacecraft": name, "samples": int(trail_samples)},
+                                          line=dict(width=6, color=fade, cmin=0.0, cmax=1.0,
+                                                    colorscale=[[0.0, "rgba(0,0,0,0)"], [1.0, color]])))
+        now = path_km[min(index, len(path_km) - 1)]
+        nx, ny, nz = now[1], now[2], now[0]
+        figure.add_trace(go.Scatter3d(x=[nx], y=[ny], z=[nz], mode="markers", showlegend=False, hoverinfo="skip",
+                                      meta={"role": "halo", "spacecraft": name},
+                                      marker=dict(size=14, color=color, opacity=0.25)))
+        figure.add_trace(go.Scatter3d(x=[nx], y=[ny], z=[nz], mode="markers", showlegend=False,
+                                      name=f"{name} (now)", meta={"role": "marker", "spacecraft": name},
+                                      marker=dict(size=6, color="#ffffff", line=dict(color=color, width=2))))
+
+    # The target at the origin, and the axes through it: V-bar and R-bar
+    # are the lines approaches are flown along.
+    figure.add_trace(go.Scatter3d(x=[0.0], y=[0.0], z=[0.0], mode="markers+text", name=target_name,
+                                  text=[target_name], textposition="top center",
+                                  textfont=dict(color=TEXT_SECONDARY, size=11),
+                                  marker=dict(size=5, color=SPACECRAFT_COLORS[0], symbol="diamond")))
+    if keep_out_radius_km > 0.0:
+        figure.add_trace(wire_sphere(keep_out_radius_km, UNSTABLE, f"keep-out {keep_out_radius_km:g} km"))
+        window_points.append(np.array([[keep_out_radius_km] * 3, [-keep_out_radius_km] * 3]))
+
+    window_points.append(np.zeros((1, 3)))
+    lower, upper = view_window(window_points, margin_fraction=0.12)
+    # Keep the box from collapsing when the motion is nearly a straight line.
+    span = upper - lower
+    floor = 0.25 * span.max()
+    for axis in range(3):
+        if span[axis] < floor:
+            middle = 0.5 * (lower[axis] + upper[axis])
+            lower[axis] = middle - 0.5 * floor
+            upper[axis] = middle + 0.5 * floor
+    span = upper - lower
+    ratio = span / span.max()
+
+    for axis, label in ((0, "V-bar"), (2, "R-bar")):
+        ends = np.zeros((2, 3))
+        ends[0, axis] = lower[axis]
+        ends[1, axis] = upper[axis]
+        figure.add_trace(go.Scatter3d(x=ends[:, 0], y=ends[:, 1], z=ends[:, 2], mode="lines+text", name=label,
+                                      text=["", label], textposition="middle right", showlegend=False,
+                                      textfont=dict(color=TEXT_MUTED, size=10), hoverinfo="skip",
+                                      line=dict(width=1, color="#3a3a3a")))
+
+    figure.update_layout(
+        scene=dict(xaxis=dict(title=f"along-track [km], LVLH of {target_name} about the {centre}",
+                              range=[lower[0], upper[0]], **SCENE_AXIS),
+                   yaxis=dict(title="cross-track [km]", range=[lower[1], upper[1]], **SCENE_AXIS),
+                   zaxis=dict(title="radial [km]", range=[lower[2], upper[2]], **SCENE_AXIS),
+                   aspectmode="manual", aspectratio=dict(x=ratio[0], y=ratio[1], z=ratio[2]),
+                   dragmode="turntable",
+                   camera=dict(eye=dict(x=0.35, y=-1.45, z=0.45), up=dict(x=0, y=0, z=1))),
+        paper_bgcolor=GROUND, plot_bgcolor=GROUND,
+        font=dict(family="Inter, -apple-system, Segoe UI, sans-serif", color=TEXT_SECONDARY, size=12),
+        margin=dict(l=0, r=0, t=34, b=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0, bgcolor="rgba(0,0,0,0)",
+                    font=dict(size=11, color=TEXT_SECONDARY)),
+        hoverlabel=dict(bgcolor="#111111", bordercolor="#303030",
+                        font=dict(family="IBM Plex Mono, Menlo, monospace", color=TEXT, size=11)),
+        uirevision=f"lvlh-{target_name}",
+        meta=dict(clock or {}, index=int(index)))
+    return figure
+
+
 # --------------------------------------------------------------------------
 # Time series
 # --------------------------------------------------------------------------
@@ -292,17 +414,26 @@ PLOT_LAYOUT = dict(template="plotly_dark",
                                    font=dict(family="IBM Plex Mono, Menlo, monospace", color=TEXT, size=11)))
 
 
-def time_series_figure(series, thresholds, windows, current_time_s=None):
+GROUND_PANELS = [("elevation_deg", "Elevation above horizon [deg]", "min elevation"),
+                 ("apparent_magnitude", "Apparent magnitude (brighter is up)", "limiting magnitude"),
+                 ("lunar_separation_deg", "Angular separation from the Moon [deg]", "lunar exclusion")]
+SPACE_PANELS = [("range_km", "Range to target [km]", "maximum range"),
+                ("apparent_magnitude", "Apparent magnitude (brighter is up)", "limiting magnitude"),
+                ("sun_separation_deg", "Angle between line of sight and Sun [deg]", "sun exclusion")]
+
+
+def time_series_figure(series, thresholds, windows, current_time_s=None, panels=None):
     """
-    Elevation, apparent magnitude and lunar separation against time, with
-    constraint thresholds as dashed lines, access windows shaded, and an
-    optional vertical marker at the current time.
+    Three quantities against time, with constraint thresholds as dashed
+    lines, access windows shaded, and an optional vertical marker at the
+    current time.
 
     series     : engine.geometry.GeometrySeries
-    thresholds : {"elevation_deg": value or None,
-                  "apparent_magnitude": value or None,
-                  "lunar_separation_deg": value or None}
+    thresholds : {attribute name: value or None}
     windows    : list of (start_s, stop_s)
+    panels     : three (attribute of the series, title, threshold label);
+                 GROUND_PANELS (the default) suits a ground telescope,
+                 SPACE_PANELS a camera on a spacecraft
     """
     from plotly.subplots import make_subplots
 
@@ -312,16 +443,14 @@ def time_series_figure(series, thresholds, windows, current_time_s=None):
 
     # Three small multiples side by side: the strip stays short so the
     # 3D scene keeps the height.
+    panels = panels or GROUND_PANELS
     figure = make_subplots(rows=1, cols=3, horizontal_spacing=0.05,
-                           subplot_titles=("Elevation above horizon [deg]",
-                                           "Apparent magnitude (brighter is up)",
-                                           "Angular separation from the Moon [deg]"))
+                           subplot_titles=tuple(title for _, title, _ in panels))
+    colors = [SERIES_BLUE, SERIES_ORANGE, SERIES_AQUA]
 
-    panels = [("elevation_deg", series.elevation_deg, SERIES_BLUE, "min elevation"),
-              ("apparent_magnitude", series.apparent_magnitude, SERIES_ORANGE, "limiting magnitude"),
-              ("lunar_separation_deg", series.lunar_separation_deg, SERIES_AQUA, "lunar exclusion")]
-
-    for col, (key, values, color, threshold_name) in enumerate(panels, start=1):
+    for col, (key, _, threshold_name) in enumerate(panels, start=1):
+        values = getattr(series, key)
+        color = colors[col - 1]
         figure.add_trace(go.Scatter(x=shown_days, y=values[::stride], mode="lines", name=key,
                                     line=dict(color=color, width=1.8), showlegend=False,
                                     hovertemplate="day %{x:.2f}<br>%{y:.2f}<extra></extra>"),
@@ -338,7 +467,9 @@ def time_series_figure(series, thresholds, windows, current_time_s=None):
             figure.add_vline(x=current_time_s / 86400.0, line=dict(color=REGOLITH, width=1.2), row=1, col=col)
         figure.update_xaxes(title_text="days", title_font=dict(size=10), title_standoff=4, row=1, col=col)
 
-    figure.update_yaxes(autorange="reversed", row=1, col=2)
+    for col, (key, _, _) in enumerate(panels, start=1):
+        if key == "apparent_magnitude":
+            figure.update_yaxes(autorange="reversed", row=1, col=col)
     figure.update_xaxes(showgrid=True, gridcolor=GRID, zeroline=False, tickfont=dict(size=10))
     figure.update_yaxes(showgrid=True, gridcolor=GRID, zeroline=False, tickfont=dict(size=10))
     figure.update_layout(height=210, margin=dict(l=40, r=16, t=28, b=34), hovermode="x",

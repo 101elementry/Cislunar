@@ -29,9 +29,11 @@ from engine import crtbp
 from model import runner
 from model.ephemeris import load_ephemeris
 from model.family import load_families
-from model.scenario import Scenario, Spacecraft, GroundStation, OpticalSensor, ELEMENT_PRESETS
+from model.scenario import (Scenario, Spacecraft, GroundStation, OpticalSensor, ELEMENT_PRESETS,
+                            rendezvous_example)
 from app import figures
-from app.scene import BODY_RADII, FRAME_LABELS, displayed_frame, scene_figure
+from app.scene import (BODY_RADII, displayed_frame, frame_label, scene_figure,
+                       series_panels_and_thresholds)
 
 REPOSITORY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SITE_DIRECTORY = os.path.join(REPOSITORY_ROOT, "site")
@@ -257,7 +259,49 @@ def scene_lunar_relay():
             "facts": facts}
 
 
-SCENES = [scene_halo_to_nrho, scene_manifolds, scene_dro_two_frames, scene_sydney_tracking, scene_lunar_relay]
+def scene_proximity():
+    scenario = rendezvous_example()
+    pair = ("Chaser camera", "Target")
+
+    def facts(results):
+        series = results["observations"][pair]["geometry"]
+        windows = results["windows"][pair]
+        hours_in_range = float(np.sum(series.range_km <= 500.0)) * scenario.time_step_s / 3600.0
+        return [("Separation at the start", f"{series.range_km[0]:,.0f} km, directly behind the target"),
+                ("Separation after 3 days", f"{series.range_km[-1]:,.0f} km"),
+                ("Time within camera range", f"{hours_in_range:.1f} h of {scenario.duration_days * 24.0:.0f} h"),
+                ("Camera access", f"{100.0 * results['duty_cycle'][pair]:.0f} % of the span, "
+                                  f"{len(windows)} window" + ("" if len(windows) == 1 else "s"))]
+
+    return {"slug": "proximity", "kicker": "Relative motion", "title": "Holding station near the NRHO",
+            "tagline": "A chaser left 50 km behind a target on the Gateway orbit, with no control at all.",
+            "scenario": scenario, "views": [("lvlh:Target", "moon", "none"), ("rotating", "moon", "none")],
+            "pair": pair, "access_text": "camera has access",
+            "paragraphs": [
+                "The left panel is the view rendezvous is flown in. The target sits at the origin and the axes "
+                "turn with it: along its direction of travel, across its orbit plane, and radially away from "
+                "the Moon. The chaser starts 50 km behind the target with no relative velocity, which in a "
+                "circular Earth orbit would keep it there indefinitely.",
+                "Near the Moon it does not stay. The two spacecraft are on slightly different three-body "
+                "orbits, and the difference grows fastest as they fall toward the Moon. Within a day the "
+                "chaser has drifted beyond the range at which its camera can see the target. The "
+                "Clohessy-Wiltshire equations used for rendezvous in low Earth orbit assume a circular "
+                "two-body orbit and cannot describe this, so the motion here is propagated with the full "
+                "three-body equations for both spacecraft.",
+                "The chaser carries a camera. It can observe when the target is sunlit, bright enough, within "
+                "range, and not too close to the Sun or the Moon on the sky. A camera measures direction only "
+                "and never range, which makes estimating the relative orbit from these images an "
+                "angles-only navigation problem."],
+            "look_for": [
+                "The dotted red sphere is a 10 km keep-out zone around the target.",
+                "The access light turns off once the chaser drifts past 500 km, the range limit of its camera.",
+                "The right panel shows both spacecraft on the NRHO at the same instant. At that scale they "
+                "are indistinguishable, which is why a relative frame is needed."],
+            "facts": facts}
+
+
+SCENES = [scene_halo_to_nrho, scene_manifolds, scene_dro_two_frames, scene_sydney_tracking,
+          scene_proximity, scene_lunar_relay]
 
 
 # --------------------------------------------------------------------------
@@ -369,23 +413,22 @@ def scene_page(spec, results, neighbours, number):
     series_block = ""
     access_light = ""
     if spec["pair"] is not None:
-        station, sensor = runner.observer_settings(scenario, spec["pair"][0])
-        thresholds = {"elevation_deg": station.min_elevation_deg,
-                      "apparent_magnitude": sensor.limiting_magnitude,
-                      "lunar_separation_deg": sensor.lunar_exclusion_deg}
+        host, sensor = runner.observer_settings(scenario, spec["pair"][0])
+        panels, thresholds = series_panels_and_thresholds(host, sensor)
         series_figure = figures.time_series_figure(results["observations"][spec["pair"]]["geometry"], thresholds,
-                                                   results["windows"][spec["pair"]])
+                                                   results["windows"][spec["pair"]], panels=panels)
         series_figure.update_layout(height=None, autosize=True)
         page_data["series"] = json.loads(series_figure.to_json())
         page_data["windows_s"] = [[float(start), float(stop)] for start, stop in results["windows"][spec["pair"]]]
         series_block = '<div class="series"><div id="series" class="plot"></div></div>'
+        page_data["access_text"] = spec.get("access_text", "Sydney has access")
         access_light = '<span id="access-light" class="access-light">no access</span>'
 
     stage_class = "stage split" if len(scene_figures) == 2 else "stage"
     holders = ["view-3d", "view-3d-b"]
     views_html = ""
     for k, (frame, view, focus) in enumerate(spec["views"]):
-        views_html += (f'<figure class="view"><figcaption>{html.escape(FRAME_LABELS[frame])}</figcaption>'
+        views_html += (f'<figure class="view"><figcaption>{html.escape(frame_label(frame))}</figcaption>'
                        f'<div id="{holders[k]}" class="holder"><div class="plot"></div></div></figure>')
 
     paragraphs = "".join(f"<p>{html.escape(text)}</p>" for text in spec["paragraphs"])
@@ -521,7 +564,10 @@ def build_site(directory=SITE_DIRECTORY):
             handle.write(scene_page(spec, results, neighbours, k + 1))
         written.append(path)
 
-        trajectories, manifolds, _, bodies, _ = displayed_frame(results, spec["views"][0][0])
+        thumbnail_frame = spec["views"][0][0]
+        if thumbnail_frame.startswith("lvlh:"):
+            thumbnail_frame = "rotating"
+        trajectories, manifolds, _, bodies, _ = displayed_frame(results, thumbnail_frame)
         cards.append((spec, thumbnail_svg(trajectories, manifolds, bodies, BODY_RADII)))
 
     hero_spec = specs[0]

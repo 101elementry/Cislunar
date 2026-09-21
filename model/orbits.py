@@ -10,7 +10,7 @@ without doing any physics in a callback.
 
 import numpy as np
 
-from engine import corrector, crtbp, frames, kepler
+from engine import corrector, crtbp, frames, kepler, rendezvous
 
 
 def plane_rotation_for(spacecraft, epoch_jd, ephemeris=None):
@@ -23,15 +23,29 @@ def plane_rotation_for(spacecraft, epoch_jd, ephemeris=None):
     return None
 
 
-def initial_state(spacecraft, families, epoch_jd, ephemeris=None):
+def initial_state(spacecraft, families, epoch_jd, ephemeris=None, companions=None):
     """
     Rotating-frame initial state (6,) of a Spacecraft at scenario time
     zero, whatever its source.
 
-    families : {name: list of orbit dictionaries}, needed for "family"
-    epoch_jd : Julian date of the epoch, needed for elements quoted in
-               the Earth-equatorial frame
+    families   : {name: list of orbit dictionaries}, needed for "family"
+    epoch_jd   : Julian date of the epoch, needed for elements quoted in
+                 the Earth-equatorial frame
+    companions : {name: Spacecraft} of the scenario's other spacecraft,
+                 needed for "relative", whose state is an offset from
+                 one of them
     """
+    if spacecraft.source == "relative":
+        target = (companions or {}).get(spacecraft.relative_to)
+        if target is None:
+            raise ValueError(f"spacecraft {spacecraft.name!r} is placed relative to "
+                             f"{spacecraft.relative_to!r}, which is not in the scenario")
+        if target.source == "relative":
+            raise ValueError(f"spacecraft {spacecraft.name!r} must be placed relative to a spacecraft "
+                             f"with its own orbit, not to another relative one")
+        target_state = initial_state(target, families, epoch_jd, ephemeris)
+        return rendezvous.state_from_lvlh_offset(target_state, spacecraft.relative_position_km,
+                                                 spacecraft.relative_velocity_m_s, centre=spacecraft.centre)
     if spacecraft.source == "family":
         if families is None or spacecraft.family_name not in families:
             raise ValueError(f"spacecraft {spacecraft.name!r} needs the family {spacecraft.family_name!r}")
@@ -96,14 +110,15 @@ def correct_to_periodic(spacecraft, families, epoch_jd, fixed=None, period_guess
             "stability_index": float(orbit["stability_index"])}
 
 
-def describe(spacecraft, families, epoch_jd):
+def describe(spacecraft, families, epoch_jd, companions=None):
     """
     Plain-text lines summarising the orbit a spacecraft starts on, for
     the interface: period and Jacobi constant for periodic orbits,
-    osculating elements for everything.
+    osculating elements for everything.  companions is passed on to
+    initial_state for a spacecraft placed relative to another.
     """
     try:
-        state0 = initial_state(spacecraft, families, epoch_jd)
+        state0 = initial_state(spacecraft, families, epoch_jd, companions=companions)
     except (ValueError, KeyError) as error:
         return [f"cannot build the initial state: {error}"]
 

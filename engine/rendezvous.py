@@ -81,6 +81,58 @@ def relative_motion_lvlh(target_states, chaser_states, times_nondim, centre="ear
     return crtbp.length_to_km(relative_position), crtbp.velocity_to_km_s(relative_velocity) * 1000.0
 
 
+def state_from_lvlh_offset(target_state, relative_position_km, relative_velocity_m_s, centre="moon", mu=MU):
+    """
+    Rotating-frame state (6,) of a chaser placed at a given offset from
+    a target, the inverse of relative_motion_lvlh at one instant.
+
+    target_state          : (6,) rotating-frame state of the target at
+                            scenario time zero
+    relative_position_km  : (3,) radial, along-track, cross-track offset
+                            of the chaser from the target, km
+    relative_velocity_m_s : (3,) velocity of the chaser as seen in the
+                            LVLH frame, m/s (zero means the chaser holds
+                            its place in that frame at this instant)
+    centre                : "moon" or "earth", the body the LVLH frame
+                            is defined about
+
+    The steps mirror relative_motion_lvlh.  The target is taken to the
+    body-centred inertial frame, which at time zero is aligned with the
+    rotating axes.  The offset is rotated from LVLH to inertial axes.
+    The LVLH frame turns at omega = h / r^2 about the cross-track axis,
+    so the inertial relative velocity is the LVLH one plus
+    omega x (relative position).  Adding these to the target gives the
+    chaser's inertial state, which is then taken back to the rotating
+    frame: add the body's position, and remove the velocity the rotating
+    frame carries, z_hat x r, together with the body's own velocity.
+    """
+    target_state = np.asarray(target_state, dtype=float)
+    target_inertial = frames.rotating_to_inertial_states(target_state[np.newaxis, :], np.array([0.0]), centre, mu)[0]
+    radial, along_track, cross_track = lvlh_basis(target_inertial)
+    basis = np.vstack([radial, along_track, cross_track])
+
+    rho_lvlh = crtbp.length_to_nondim(np.asarray(relative_position_km, dtype=float))
+    rho_dot_lvlh = crtbp.velocity_to_nondim(np.asarray(relative_velocity_m_s, dtype=float) / 1000.0)
+
+    r = np.linalg.norm(target_inertial[:3])
+    h = np.linalg.norm(np.cross(target_inertial[:3], target_inertial[3:]))
+    omega = (h / r ** 2) * cross_track
+
+    rho = basis.T @ rho_lvlh
+    rho_dot = basis.T @ rho_dot_lvlh + np.cross(omega, rho)
+    chaser_position_inertial = target_inertial[:3] + rho
+    chaser_velocity_inertial = target_inertial[3:] + rho_dot
+
+    # Back to the rotating frame at time zero.  The body sits at
+    # (body_x, 0, 0) and moves with velocity z_hat x (body_x, 0, 0).
+    body_x = crtbp.earth_position(mu)[0] if centre == "earth" else crtbp.moon_position(mu)[0]
+    body_position = np.array([body_x, 0.0, 0.0])
+    z_hat = np.array([0.0, 0.0, 1.0])
+    position = chaser_position_inertial + body_position
+    velocity = chaser_velocity_inertial + np.cross(z_hat, body_position) - np.cross(z_hat, position)
+    return np.concatenate([position, velocity])
+
+
 def two_impulse_rendezvous(chaser_state, target_state, transfer_time, mu=MU, n_points=400):
     """
     Two-burn rendezvous from the chaser's state to the target's state

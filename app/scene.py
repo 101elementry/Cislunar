@@ -7,7 +7,7 @@ engine.frames calls; nothing here computes physics.
 
 import numpy as np
 
-from engine import crtbp, frames, propagation
+from engine import crtbp, frames, propagation, rendezvous
 from app import figures
 
 FIXED_POINTS = propagation.fixed_points()
@@ -76,8 +76,62 @@ def focus_point_for(focus, trajectories, bodies, points, index):
     return None
 
 
+LVLH_PREFIX = "lvlh:"
+
+
+def frame_label(frame):
+    """Display name of a frame value, including the relative-motion frames 'lvlh:<spacecraft>'."""
+    if frame.startswith(LVLH_PREFIX):
+        return f"relative to {frame[len(LVLH_PREFIX):]}, LVLH"
+    return FRAME_LABELS[frame]
+
+
+def series_panels_and_thresholds(host, sensor):
+    """
+    The time series panels that suit an observer and the constraint
+    thresholds to draw on them: horizon, magnitude and Moon for a ground
+    telescope; range, magnitude and Sun angle for a camera in space.
+    """
+    if host is not None and host.kind == "spacecraft":
+        thresholds = {"range_km": sensor.max_range_km if sensor and sensor.max_range_km > 0.0 else None,
+                      "apparent_magnitude": sensor.limiting_magnitude if sensor else None,
+                      "sun_separation_deg": sensor.sun_exclusion_deg if sensor else None}
+        return figures.SPACE_PANELS, thresholds
+    thresholds = {"elevation_deg": host.min_elevation_deg if host else None,
+                  "apparent_magnitude": sensor.limiting_magnitude if sensor else None,
+                  "lunar_separation_deg": sensor.lunar_exclusion_deg if sensor else None}
+    return figures.GROUND_PANELS, thresholds
+
+
+def relative_scene_figure(scenario, results, target_name, index):
+    """The relative-motion figure: every other spacecraft in the LVLH frame of target_name."""
+    target = scenario.spacecraft_named(target_name)
+    # The frame is defined about the body a chaser was placed with, so
+    # the view agrees with the numbers typed into its form.
+    centres = [spacecraft.centre for spacecraft in scenario.spacecraft
+               if spacecraft.source == "relative" and spacecraft.relative_to == target_name]
+    centre = centres[0] if centres else "moon"
+    paths = {}
+    for name, states in results["trajectories"].items():
+        if name == target_name:
+            continue
+        position_km, _ = rendezvous.relative_motion_lvlh(results["trajectories"][target_name], states,
+                                                         results["times_nondim"], centre=centre)
+        paths[name] = position_km
+    clock = {"epoch_utc": scenario.epoch_utc, "time_step_s": float(scenario.time_step_s),
+             "n_samples": int(len(results["times_s"]))}
+    return figures.relative_figure(paths, target_name, index=index,
+                                   keep_out_radius_km=target.keep_out_radius_km if target else 0.0,
+                                   centre=centre, trail_samples=max(2, len(results["times_s"]) // 12), clock=clock)
+
+
 def scene_figure(scenario, results, frame, view, focus, index):
     """The 3D figure of one frame at one time index."""
+    if frame.startswith(LVLH_PREFIX):
+        target_name = frame[len(LVLH_PREFIX):]
+        if target_name in results["trajectories"]:
+            return relative_scene_figure(scenario, results, target_name, index)
+        frame = "rotating"
     trajectories, manifold_branches, stations, bodies, points = displayed_frame(results, frame)
     markers = {name: states[index] for name, states in trajectories.items()}
     trail = max(2, len(results["times_s"]) // 12)

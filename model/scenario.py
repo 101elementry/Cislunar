@@ -39,6 +39,13 @@ class Spacecraft:
                          the Earth (see engine/kepler.py): a lunar relay
                          on a frozen orbit, a GEO parking orbit.  Always
                          integrated.
+    source = "relative"  an offset from another spacecraft (relative_to)
+                         at time zero, given in that spacecraft's LVLH
+                         frame about `centre`: relative_position_km and
+                         relative_velocity_m_s as radial, along-track,
+                         cross-track (see engine/rendezvous.py).  This
+                         is how a chaser is placed near a target.
+                         Always integrated.
 
     propagation  : "integrate" propagates the initial state through the
                    whole span with the full equations of motion.
@@ -51,6 +58,8 @@ class Spacecraft:
                    manifold branches to compute for a periodic orbit.
     manifold_branches, manifold_time_days : how many departure points
                    along the orbit and how long each branch is followed.
+    keep_out_radius_km : radius of the keep-out sphere drawn around this
+                   spacecraft in a relative-motion view (0 for none).
     """
     name: str
     source: str = "state"
@@ -67,6 +76,10 @@ class Spacecraft:
     manifolds: str = "none"
     manifold_branches: int = 8
     manifold_time_days: float = 10.0
+    relative_to: str = ""
+    relative_position_km: list = field(default_factory=lambda: [0.0, -50.0, 0.0])
+    relative_velocity_m_s: list = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    keep_out_radius_km: float = 0.0
 
     kind = "spacecraft"
 
@@ -123,9 +136,11 @@ class GroundStation:
 @dataclass
 class OpticalSensor:
     """
-    An optical telescope at a ground station.
+    An optical sensor: a telescope at a ground station, or a camera
+    carried by a spacecraft that watches every other spacecraft.
 
-    station              : name of the GroundStation it sits on.
+    station              : name of its host, a GroundStation or a
+                           Spacecraft.
     limiting_magnitude   : faintest apparent magnitude it can detect.
     lunar_exclusion_deg  : minimum angle between the line of sight and
                            the Moon, to keep lunar glare out of the field.
@@ -135,6 +150,11 @@ class OpticalSensor:
     max_range_km         : range limit (0 means no limit), for a radar
                            or a link budget rather than a telescope.
     max_slew_rate_deg_s  : mount rate limit (0 means no limit).
+    sun_exclusion_deg    : minimum angle between the line of sight and
+                           the Sun.  Only applied to a sensor in space; a
+                           ground telescope already waits for night.
+    earth_exclusion_deg  : the same for the Earth (0 means no limit),
+                           also only applied in space.
     """
     name: str
     station: str = ""
@@ -142,6 +162,8 @@ class OpticalSensor:
     lunar_exclusion_deg: float = 20.0
     max_range_km: float = 0.0
     max_slew_rate_deg_s: float = 0.0
+    sun_exclusion_deg: float = 30.0
+    earth_exclusion_deg: float = 0.0
 
     kind = "optical_sensor"
 
@@ -200,9 +222,16 @@ class Scenario:
                 return obj
         return None
 
-    def sensors_of(self, station_name):
-        """Sensors attached to a given station."""
-        return [sensor for sensor in self.sensors if sensor.station == station_name]
+    def sensors_of(self, host_name):
+        """Sensors attached to a given host, a ground station or a spacecraft."""
+        return [sensor for sensor in self.sensors if sensor.station == host_name]
+
+    def spacecraft_named(self, name):
+        """The Spacecraft with this name, or None."""
+        for spacecraft in self.spacecraft:
+            if spacecraft.name == name:
+                return spacecraft
+        return None
 
     def unique_name(self, base):
         """A name not already used in the scenario, e.g. 'Station 2'."""
@@ -233,7 +262,7 @@ class Scenario:
         self.ground_stations = [obj for obj in self.ground_stations if obj.name != name]
 
     def rename(self, old_name, new_name):
-        """Rename an object and keep sensor-to-station links consistent."""
+        """Rename an object and keep the links that name it consistent: a sensor's host and a chaser's target."""
         obj = self.find(old_name)
         if obj is None:
             return
@@ -241,6 +270,9 @@ class Scenario:
         for sensor in self.sensors:
             if sensor.station == old_name:
                 sensor.station = new_name
+        for spacecraft in self.spacecraft:
+            if spacecraft.relative_to == old_name:
+                spacecraft.relative_to = new_name
 
     # ---- serialisation ---------------------------------------------------
 
@@ -286,6 +318,23 @@ class Scenario:
         """Read a scenario from a JSON file."""
         with open(path) as handle:
             return cls.from_json(handle.read())
+
+
+def rendezvous_example():
+    """
+    A ready-made proximity scenario: a chaser 50 km behind a Gateway-like
+    target on the 9:2 NRHO, carrying a camera that watches the target.
+    """
+    scenario = Scenario(name="NRHO proximity", epoch_utc="2026-01-01T00:00:00",
+                        duration_days=3.0, time_step_s=60.0)
+    scenario.add(Spacecraft(name="Target", source="family", family_index=49, propagation="periodic",
+                            diameter_m=6.0, albedo=0.25, keep_out_radius_km=10.0))
+    scenario.add(Spacecraft(name="Chaser", source="relative", relative_to="Target", centre="moon",
+                            relative_position_km=[0.0, -50.0, 0.0], relative_velocity_m_s=[0.0, 0.0, 0.0],
+                            propagation="integrate", diameter_m=2.0, albedo=0.3))
+    scenario.add(OpticalSensor(name="Chaser camera", station="Chaser", limiting_magnitude=12.0,
+                               lunar_exclusion_deg=5.0, max_range_km=500.0, sun_exclusion_deg=30.0))
+    return scenario
 
 
 def example_scenario():

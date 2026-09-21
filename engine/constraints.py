@@ -85,3 +85,25 @@ def maximum_slew_rate(max_rate_deg_s):
     constraint.kind = "maximum_slew_rate"
     constraint.name = f"slew rate <= {max_rate_deg_s:g} deg/s"
     return constraint
+
+
+def solar_exclusion(min_separation_deg):
+    """
+    The line of sight must stay this far from the Sun.  A camera pointed
+    near the Sun is blinded by stray light, so every space-based optical
+    sensor has a keep-out cone around it.
+    """
+    def constraint(step):
+        return step.sun_separation_deg >= min_separation_deg
+    constraint.kind = "solar_exclusion"
+    constraint.name = f"sun separation >= {min_separation_deg:g} deg"
+    return constraint
+
+
+def earth_exclusion(min_separation_deg):
+    """The line of sight must stay this far from the Earth, which is bright enough to wash out a faint target."""
+    def constraint(step):
+        return step.earth_separation_deg >= min_separation_deg
+    constraint.kind = "earth_exclusion"
+    constraint.name = f"earth separation >= {min_separation_deg:g} deg"
+    return constraint

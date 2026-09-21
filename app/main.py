@@ -28,9 +28,11 @@ from model import orbits, runner, sweep
 from model.family import load_families, nearest_member, member_label, DEFAULT_FAMILY_NAME
 from model.ephemeris import load_ephemeris
 from model.scenario import (Scenario, Spacecraft, GroundStation, OpticalSensor, example_scenario,
+                            rendezvous_example,
                             ELEMENT_PRESETS)
 from app import figures
-from app.scene import BODY_RADII, FIXED_POINTS, focus_point_for, scene_figure
+from app.scene import (BODY_RADII, FIXED_POINTS, FRAME_LABELS, LVLH_PREFIX, focus_point_for, scene_figure,
+                       series_panels_and_thresholds)
 
 dash_app = Dash(__name__, title="Cislunar mission tool", suppress_callback_exceptions=True)
 
@@ -114,6 +116,9 @@ dash_app.layout = html.Div([
             toggle_button("Series", "toggle-bottom"),
         ], className="toggles"),
         html.Div([
+            dcc.Dropdown(id="example-select", className="dash-dropdown narrow", placeholder="Examples", value=None,
+                         options=[{"label": "NRHO from Sydney", "value": "ground"},
+                                  {"label": "NRHO proximity (chaser camera)", "value": "rendezvous"}]),
             html.Button("Run analysis", id="run-button", className="primary", n_clicks=0),
             html.Button("Save", id="save-button", n_clicks=0),
             dcc.Upload(html.Div("Load", className="upload-box"), id="load-upload", multiple=False),
@@ -401,9 +406,13 @@ def render_tree(scenario_data, selected):
             meta = f"#{spacecraft.family_index}"
         elif spacecraft.source == "elements":
             meta = f"{spacecraft.centre} elements"
+        elif spacecraft.source == "relative":
+            meta = f"rel. {spacecraft.relative_to}"
         else:
             meta = "periodic" if spacecraft.period_tu > 0.0 else "state"
         items.append(tree_item(spacecraft, selected, meta))
+        for sensor in scenario.sensors_of(spacecraft.name):
+            items.append(tree_item(sensor, selected, f"m<{sensor.limiting_magnitude:g}", child=True))
     if len(scenario.spacecraft) == 0:
         items.append(html.Div("none", className="empty"))
     items.append(html.Div("Ground stations", className="tree-group"))
@@ -445,7 +454,8 @@ def spacecraft_form(obj, scenario):
     fields = [field("Defined by", prop_dropdown("source", obj.source,
                     [{"label": "Rotating-frame initial state", "value": "state"},
                      {"label": "Orbit family member", "value": "family"},
-                     {"label": "Two-body elements (Moon or Earth)", "value": "elements"}]))]
+                     {"label": "Two-body elements (Moon or Earth)", "value": "elements"},
+                     {"label": "Offset from another spacecraft", "value": "relative"}]))]
 
     # ---- family ----
     family_block = [
@@ -521,6 +531,33 @@ def spacecraft_form(obj, scenario):
     fields.append(html.Div(element_block, className="form-block", hidden=obj.source != "elements",
                            id={"type": "source-block", "source": "elements"}))
 
+    # ---- relative ----
+    targets = [other.name for other in scenario.spacecraft if other.name != obj.name and other.source != "relative"]
+    position = obj.relative_position_km
+    velocity = obj.relative_velocity_m_s
+    relative_block = [
+        html.Div([field("Relative to", prop_dropdown("relative_to", obj.relative_to if obj.relative_to in targets else None,
+                                                     [{"label": name, "value": name} for name in targets])),
+                  field("LVLH about", prop_dropdown("relative_centre", obj.centre,
+                                                    [{"label": "Moon", "value": "moon"},
+                                                     {"label": "Earth", "value": "earth"}]))],
+                 className="form-row"),
+        html.Div([field("Radial [km]", prop_input("relative_position_0", position[0], type="number")),
+                  field("Along-track [km]", prop_input("relative_position_1", position[1], type="number")),
+                  field("Cross-track [km]", prop_input("relative_position_2", position[2], type="number"))],
+                 className="form-row three"),
+        html.Div([field("Radial [m/s]", prop_input("relative_velocity_0", velocity[0], type="number")),
+                  field("Along-track [m/s]", prop_input("relative_velocity_1", velocity[1], type="number")),
+                  field("Cross-track [m/s]", prop_input("relative_velocity_2", velocity[2], type="number"))],
+                 className="form-row three"),
+        html.Span("Offset at the epoch in the target's LVLH frame: radial points away from the central body, "
+                  "along-track is close to the target's velocity, so a negative value is behind it. The "
+                  "velocity is as seen in that frame; zero holds station for an instant. Choose the frame "
+                  "'Relative to ...' in the scene to see the motion.", className="hint"),
+    ]
+    fields.append(html.Div(relative_block, className="form-block", hidden=obj.source != "relative",
+                           id={"type": "source-block", "source": "relative"}))
+
     # ---- common ----
     fields.append(field("Propagation", prop_dropdown("propagation", obj.propagation,
                         [{"label": "Integrate initial state", "value": "integrate"},
@@ -540,11 +577,16 @@ def spacecraft_form(obj, scenario):
                                                               type="number", min=0.1))],
                            className="form-row three"))
     fields.append(html.Span("Manifolds are drawn for periodic orbits only.", className="hint"))
+    fields.append(field("Keep-out radius [km]", prop_input("keep_out_radius_km", obj.keep_out_radius_km,
+                                                           type="number", min=0),
+                        hint="drawn around this spacecraft in a relative-motion view; 0 for none"))
 
     # ---- description of the resulting orbit ----
     epoch_jd = frames.julian_date(scenario.epoch_utc)
     fields.append(html.Div([html.Div(line, className="describe-line")
-                            for line in orbits.describe(obj, FAMILIES, epoch_jd)], className="describe"))
+                            for line in orbits.describe(obj, FAMILIES, epoch_jd,
+                                                        {other.name: other for other in scenario.spacecraft})],
+                           className="describe"))
     return fields
 
 
@@ -573,8 +615,10 @@ def render_form(selected, scenario_data):
         fields.append(html.Span("Station is dark when the Sun is below the max Sun elevation "
                                 "(-6 civil, -12 nautical, -18 astronomical twilight).", className="hint"))
     elif isinstance(obj, OpticalSensor):
-        fields.append(field("Ground station", prop_dropdown("station", obj.station,
-                            [{"label": s.name, "value": s.name} for s in scenario.ground_stations])))
+        hosts = ([{"label": f"{s.name} (ground station)", "value": s.name} for s in scenario.ground_stations]
+                 + [{"label": f"{s.name} (spacecraft)", "value": s.name} for s in scenario.spacecraft])
+        fields.append(field("Carried by", prop_dropdown("station", obj.station, hosts),
+                            hint="on a spacecraft the sensor is a camera that watches every other spacecraft"))
         fields.append(html.Div([field("Limiting magnitude", prop_input("limiting_magnitude", obj.limiting_magnitude, type="number")),
                                 field("Lunar exclusion [deg]", prop_input("lunar_exclusion_deg", obj.lunar_exclusion_deg, type="number"))],
                                className="form-row"))
@@ -586,6 +630,14 @@ def render_form(selected, scenario_data):
                                className="form-row"))
         fields.append(html.Span("0 means no limit. Range suits a radar or link budget; slew rate a mount limit "
                                 "(cislunar targets move a few thousandths of a degree per second).", className="hint"))
+        fields.append(html.Div([field("Sun exclusion [deg]", prop_input("sun_exclusion_deg", obj.sun_exclusion_deg,
+                                                                        type="number", min=0)),
+                                field("Earth exclusion [deg]", prop_input("earth_exclusion_deg", obj.earth_exclusion_deg,
+                                                                          type="number", min=0))],
+                               className="form-row"))
+        fields.append(html.Span("Used only when a spacecraft carries the sensor: the camera cannot point closer "
+                                "than this to the Sun or the Earth. A ground telescope waits for night instead.",
+                                className="hint"))
 
     return fields, False
 
@@ -629,6 +681,20 @@ def apply_form_values(scenario, obj, prop_values, prop_ids):
             if value is not None:
                 obj.elements[key[len("element_"):]] = float(value)
             continue
+        if key.startswith("relative_position_") or key.startswith("relative_velocity_"):
+            if value is not None:
+                name, _, component = key.rpartition("_")
+                attribute = "relative_position_km" if name == "relative_position" else "relative_velocity_m_s"
+                getattr(obj, attribute)[int(component)] = float(value)
+            continue
+        if key == "relative_centre":
+            # The elements block has its own "centre"; this one counts
+            # only for a spacecraft placed relative to another.
+            if values.get("source") == "relative" and value:
+                obj.centre = value
+            continue
+        if key == "centre" and values.get("source") == "relative":
+            continue
         if key == "initial_state":
             try:
                 value = parse_state_text(value)
@@ -643,6 +709,8 @@ def apply_form_values(scenario, obj, prop_values, prop_ids):
                 continue
             value = float(value)
         setattr(obj, key, value)
+    if isinstance(obj, Spacecraft) and obj.source == "relative":
+        obj.propagation = "integrate"
     if new_name != obj.name:
         new_name = scenario.unique_name(new_name)
         scenario.rename(obj.name, new_name)
@@ -662,6 +730,7 @@ def status_message(text_value, kind="ok"):
               Input("remove-button", "n_clicks"),
               Input("apply-button", "n_clicks"), Input("load-upload", "contents"),
               Input({"type": "form-action", "name": ALL}, "n_clicks"),
+              Input("example-select", "value"),
               Input("scenario-name", "value"), Input("scenario-epoch", "value"),
               Input("scenario-duration", "value"), Input("scenario-step", "value"),
               State("add-type", "value"), State("selected-store", "data"),
@@ -672,7 +741,7 @@ def status_message(text_value, kind="ok"):
               State("scenario-store", "data"),
               prevent_initial_call=True)
 def edit_scenario(tree_clicks, add_clicks, add_range_clicks, remove_clicks, apply_clicks, upload_contents,
-                  action_clicks, name, epoch, duration, step, add_type, selected, range_family,
+                  action_clicks, example, name, epoch, duration, step, add_type, selected, range_family,
                   range_from, range_to, range_step, prop_values, prop_ids, pick_values, pick_ids, scenario_data):
     trigger = ctx.triggered_id
     scenario = Scenario.from_dict(scenario_data)
@@ -751,6 +820,10 @@ def edit_scenario(tree_clicks, add_clicks, add_range_clicks, remove_clicks, appl
             parent = scenario.find(selected)
             if isinstance(parent, OpticalSensor):
                 parent = scenario.find(parent.station)
+            if isinstance(parent, Spacecraft):
+                new = scenario.add(OpticalSensor(name="Camera", station=parent.name, limiting_magnitude=12.0,
+                                                 lunar_exclusion_deg=5.0))
+                return scenario.to_dict(), new.name, *settings_unchanged, ""
             if not isinstance(parent, GroundStation):
                 parent = scenario.ground_stations[0] if scenario.ground_stations else None
             if parent is None:
@@ -783,6 +856,13 @@ def edit_scenario(tree_clicks, add_clicks, add_range_clicks, remove_clicks, appl
         apply_form_values(scenario, obj, prop_values, prop_ids)
         return scenario.to_dict(), obj.name, *settings_unchanged, status_message(
             "Applied. Press Run analysis to update the scene and the windows.")
+
+    if trigger == "example-select":
+        if example is None:
+            return (no_update, no_update) + settings_unchanged + (no_status,)
+        loaded = rendezvous_example() if example == "rendezvous" else example_scenario()
+        return (loaded.to_dict(), None, loaded.name, loaded.epoch_utc, loaded.duration_days, loaded.time_step_s,
+                status_message("Example loaded. Press Run analysis."))
 
     if trigger == "load-upload":
         _, _, encoded = upload_contents.partition(",")
@@ -925,6 +1005,21 @@ def update_windows(pair, run_id):
 # 3D view, time series and slider
 # --------------------------------------------------------------------------
 
+@dash_app.callback(Output("frame-select", "options"), Output("frame-select", "value"),
+              Output("frame-select-b", "options"), Output("frame-select-b", "value"),
+              Input("scenario-store", "data"), State("frame-select", "value"), State("frame-select-b", "value"))
+def frame_options(scenario_data, current, current_b):
+    """The fixed frames, plus 'Relative to X' for each spacecraft once there are two or more."""
+    scenario = Scenario.from_dict(scenario_data)
+    options = [{"label": label[0].upper() + label[1:], "value": value} for value, label in FRAME_LABELS.items()]
+    if len(scenario.spacecraft) >= 2:
+        options.extend({"label": f"Relative to {spacecraft.name} (LVLH)", "value": LVLH_PREFIX + spacecraft.name}
+                       for spacecraft in scenario.spacecraft if spacecraft.source != "relative")
+    values = [option["value"] for option in options]
+    return (options, current if current in values else "rotating",
+            options, current_b if current_b in values else "moon_inertial")
+
+
 @dash_app.callback(Output("focus-select", "options"), Output("focus-select", "value"),
               Input("scenario-store", "data"), State("focus-select", "value"))
 def focus_options(scenario_data, current):
@@ -964,12 +1059,10 @@ def update_views(run_id, pair, slider_index, view, frame, frame_b, split, focus)
 
     if pair:
         key = pair_key(pair)
-        station, sensor = runner.observer_settings(scenario, key[0])
-        thresholds = {"elevation_deg": station.min_elevation_deg if station else None,
-                      "apparent_magnitude": sensor.limiting_magnitude if sensor else None,
-                      "lunar_separation_deg": sensor.lunar_exclusion_deg if sensor else None}
+        host, sensor = runner.observer_settings(scenario, key[0])
+        panels, thresholds = series_panels_and_thresholds(host, sensor)
         figure_series = figures.time_series_figure(results["observations"][key]["geometry"], thresholds,
-                                                   results["windows"][key], current_time_s)
+                                                   results["windows"][key], current_time_s, panels=panels)
     else:
         figure_series = figures.empty_time_series_figure("No observer-spacecraft pairs in this scenario")
 

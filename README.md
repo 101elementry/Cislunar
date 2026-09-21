@@ -73,6 +73,21 @@ can be edited because no Python runs behind them.  Open
 the project's root directory to `site` with no build command).  The
 folder is committed; rebuild it after changing a scene or a figure.
 
+## Proximity operations
+
+A spacecraft can be placed as an offset from another one in that
+spacecraft's LVLH frame (source "relative": radial, along-track and
+cross-track position in km and velocity in m/s; see
+`engine.rendezvous.state_from_lvlh_offset`), which is how a chaser is
+put near a target.  An optical sensor can be carried by a spacecraft
+instead of a ground station; it then watches every other spacecraft
+through `engine.geometry.space_observation_geometry`, with Sun and
+Earth exclusion angles in place of a horizon and a dark sky.  The
+scene's frame menu gains "Relative to X (LVLH)" for each spacecraft,
+the view rendezvous is flown in, with a keep-out sphere around the
+target.  The Examples menu loads a chaser 50 km behind a Gateway-like
+target with a camera.
+
 ## Access constraints
 
 A constraint is any function `constraint(step) -> bool` where `step`
@@ -80,8 +95,8 @@ is an `engine.geometry.StepGeometry` (elevation, Sun elevation, range,
 lunar separation, phase angle, shadow flag, apparent magnitude and
 line-of-sight rate at one instant).  `engine/constraints.py` provides
 factories for elevation cutoff, station darkness, target illumination,
-limiting magnitude, lunar exclusion, maximum range and maximum slew
-rate; `engine/access.py` evaluates any list of them without knowing
+limiting magnitude, lunar exclusion, solar and Earth exclusion (for a
+camera in space), maximum range and maximum slew rate; `engine/access.py` evaluates any list of them without knowing
 what they test and combines masks across observers for coverage.  Add
 a constraint by writing another factory and appending its result to
 the list (`runner.run_scenario` accepts `extra_constraints`).

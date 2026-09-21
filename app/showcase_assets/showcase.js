@@ -39,7 +39,7 @@
     if (!accessLight) { return; }
     var on = inAccess(sampleIndex);
     accessLight.classList.toggle("on", on);
-    accessLight.textContent = on ? "Sydney has access" : "no access";
+    accessLight.textContent = on ? (page.access_text || "access") : "no access";
   }
 
   // Draw every scene at one sample while playback is stopped.

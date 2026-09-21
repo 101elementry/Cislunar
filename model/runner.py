@@ -29,16 +29,19 @@ def as_families(family_or_families):
     return {DEFAULT_FAMILY_NAME: family_or_families}
 
 
-def spacecraft_trajectory(spacecraft, times_nondim, families=None, epoch_jd=None, ephemeris=None):
+def spacecraft_trajectory(spacecraft, times_nondim, families=None, epoch_jd=None, ephemeris=None,
+                          companions=None):
     """
     (n, 6) rotating-frame states for one Spacecraft on the grid.
 
-    The initial state comes from model.orbits whatever the source.
-    Periodic propagation is used when asked for and the orbit has a
-    known period; otherwise the state is integrated.
+    The initial state comes from model.orbits whatever the source
+    (companions is the scenario's {name: Spacecraft}, needed when this
+    one is placed relative to another).  Periodic propagation is used
+    when asked for and the orbit has a known period; otherwise the
+    state is integrated.
     """
     families = as_families(families)
-    state0 = orbits.initial_state(spacecraft, families, epoch_jd, ephemeris)
+    state0 = orbits.initial_state(spacecraft, families, epoch_jd, ephemeris, companions)
     period = orbits.period(spacecraft, families)
     if spacecraft.propagation == "periodic" and period is not None:
         return propagation.propagate_periodic(state0, period, times_nondim)
@@ -66,17 +69,26 @@ def spacecraft_manifolds(spacecraft, families, epoch_jd, ephemeris=None):
     return result
 
 
-def constraints_for(station, sensor):
+def constraints_for(host, sensor):
     """
-    The access constraints implied by a station and an optional sensor.
-    Order is only cosmetic: the engine treats the list as a set.
+    The access constraints implied by a host and an optional sensor.
+    A ground station brings a horizon and the need for a dark sky.  A
+    spacecraft host has neither; its camera is limited instead by how
+    close to the Sun and the Earth it may point.  Order is only
+    cosmetic: the engine treats the list as a set.
     """
-    constraint_list = [constraints.elevation_cutoff(station.min_elevation_deg),
-                       constraints.station_darkness(station.max_sun_elevation_deg),
-                       constraints.target_illumination()]
+    in_space = host.kind == "spacecraft"
+    constraint_list = [constraints.target_illumination()]
+    if not in_space:
+        constraint_list = [constraints.elevation_cutoff(host.min_elevation_deg),
+                           constraints.station_darkness(host.max_sun_elevation_deg)] + constraint_list
     if sensor is not None:
         constraint_list.append(constraints.limiting_magnitude(sensor.limiting_magnitude))
         constraint_list.append(constraints.lunar_exclusion(sensor.lunar_exclusion_deg))
+        if in_space and sensor.sun_exclusion_deg > 0.0:
+            constraint_list.append(constraints.solar_exclusion(sensor.sun_exclusion_deg))
+        if in_space and sensor.earth_exclusion_deg > 0.0:
+            constraint_list.append(constraints.earth_exclusion(sensor.earth_exclusion_deg))
         if sensor.max_range_km > 0.0:
             constraint_list.append(constraints.maximum_range(sensor.max_range_km))
         if sensor.max_slew_rate_deg_s > 0.0:
@@ -86,9 +98,11 @@ def constraints_for(station, sensor):
 
 def observers(scenario):
     """
-    (observer name, station, sensor) for every observer.  A station
-    without sensors observes on its own with sensor = None, so geometry
-    only constraints still produce windows.
+    (observer name, host, sensor) for every observer.  The host is a
+    GroundStation or, for a camera in space, a Spacecraft (tell them
+    apart by host.kind).  A station without sensors observes on its own
+    with sensor = None, so geometry only constraints still produce
+    windows; a spacecraft observes only through a sensor it carries.
     """
     result = []
     for station in scenario.ground_stations:
@@ -97,6 +111,9 @@ def observers(scenario):
             result.append((station.name, station, None))
         for sensor in sensors:
             result.append((sensor.name, station, sensor))
+    for spacecraft in scenario.spacecraft:
+        for sensor in scenario.sensors_of(spacecraft.name):
+            result.append((sensor.name, spacecraft, sensor))
     return result
 
 
@@ -141,8 +158,10 @@ def run_scenario(scenario, families=None, extra_constraints=None, ephemeris=None
 
     trajectories = {}
     manifold_branches = {}
+    companions = {spacecraft.name: spacecraft for spacecraft in scenario.spacecraft}
     for spacecraft in scenario.spacecraft:
-        trajectories[spacecraft.name] = spacecraft_trajectory(spacecraft, times_nondim, families, jd[0], ephemeris)
+        trajectories[spacecraft.name] = spacecraft_trajectory(spacecraft, times_nondim, families, jd[0], ephemeris,
+                                                              companions)
         if spacecraft.manifolds != "none" and orbits.period(spacecraft, families) is not None:
             manifold_branches[spacecraft.name] = spacecraft_manifolds(spacecraft, families, jd[0], ephemeris)
 
@@ -155,14 +174,21 @@ def run_scenario(scenario, families=None, extra_constraints=None, ephemeris=None
     observations = {}
     windows = {}
     duty = {}
-    for observer_name, station, sensor in observers(scenario):
-        constraint_list = constraints_for(station, sensor) + list(extra_constraints or [])
+    for observer_name, host, sensor in observers(scenario):
+        constraint_list = constraints_for(host, sensor) + list(extra_constraints or [])
         for spacecraft in scenario.spacecraft:
+            if spacecraft.name == host.name:
+                continue    # a camera does not observe the spacecraft that carries it
             key = (observer_name, spacecraft.name)
-            series = geometry.observation_geometry(
-                station.latitude_deg, station.longitude_deg, station.altitude_km,
-                trajectories[spacecraft.name], times_s, jd,
-                spacecraft.diameter_m, spacecraft.albedo, ephemeris=ephemeris)
+            if host.kind == "spacecraft":
+                series = geometry.space_observation_geometry(
+                    trajectories[host.name], trajectories[spacecraft.name], times_s, jd,
+                    spacecraft.diameter_m, spacecraft.albedo, ephemeris=ephemeris)
+            else:
+                series = geometry.observation_geometry(
+                    host.latitude_deg, host.longitude_deg, host.altitude_km,
+                    trajectories[spacecraft.name], times_s, jd,
+                    spacecraft.diameter_m, spacecraft.albedo, ephemeris=ephemeris)
             masks = access.evaluate_constraints(series, constraint_list)
             passed = np.all(masks, axis=1) if masks.shape[1] > 0 else np.ones(len(series), dtype=bool)
             observations[key] = {"geometry": series,
@@ -200,8 +226,8 @@ def run_scenario(scenario, families=None, extra_constraints=None, ephemeris=None
 
 
 def observer_settings(scenario, observer_name):
-    """(station, sensor or None) for an observer name; display code uses this for thresholds."""
-    for name, station, sensor in observers(scenario):
+    """(host, sensor or None) for an observer name; display code uses this for thresholds."""
+    for name, host, sensor in observers(scenario):
         if name == observer_name:
-            return station, sensor
+            return host, sensor
     return None, None

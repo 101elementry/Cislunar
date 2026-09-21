@@ -65,7 +65,15 @@ must print nothing.
 - Spacecraft sources: "family" (family_name, family_index), "state"
   (initial_state, period_tu > 0 once corrected), "elements" (two-body
   elements about centre "moon" or "earth", reference plane "moon orbit"
-  or "earth equator").
+  or "earth equator"), "relative" (an LVLH offset from the spacecraft
+  named in relative_to, about `centre`; always integrated).
+- Observers: a sensor's `station` field names its host, a ground
+  station or a spacecraft.  `runner.observers` yields (name, host,
+  sensor); check `host.kind`.  A spacecraft host uses
+  `space_observation_geometry` and the Sun and Earth exclusion
+  constraints; elevation and Sun elevation are NaN for it.
+- Display frames: the fixed ones in `app.scene.FRAME_LABELS`, plus
+  "lvlh:<spacecraft>" for the relative-motion view in km.
 - Inertial frames for display are aligned with the rotating axes at
   t = 0; `engine.frames.rotating_to_inertial_states`.
 - Sky model: with `data/de440_ephemeris.npz` present (committed;
