@@ -1,0 +1,127 @@
+{
+  "name": "Lander to the NRHO",
+  "epoch_utc": "2026-01-01T00:00:00",
+  "duration_days": 2.0,
+  "time_step_s": 120.0,
+  "spacecraft": [
+    {
+      "name": "Gateway",
+      "source": "state",
+      "initial_state": [
+        0.9875616457812061,
+        0.008733889573497756,
+        0.00607431344584443,
+        0.05547294019646888,
+        1.2982819783621815,
+        -0.7069680538184476
+      ],
+      "period_tu": 1.510852917572512,
+      "family_name": "L2 southern halo",
+      "family_index": 49,
+      "elements": {
+        "a_km": 6142.0,
+        "e": 0.6,
+        "i_deg": 57.0,
+        "raan_deg": 0.0,
+        "argp_deg": 90.0,
+        "true_anomaly_deg": 180.0
+      },
+      "centre": "moon",
+      "reference_plane": "moon orbit",
+      "propagation": "periodic",
+      "diameter_m": 6.0,
+      "albedo": 0.25,
+      "manifolds": "none",
+      "manifold_branches": 8,
+      "manifold_time_days": 10.0,
+      "relative_to": "",
+      "relative_position_km": [
+        0.0,
+        -50.0,
+        0.0
+      ],
+      "relative_velocity_m_s": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "keep_out_radius_km": 10.0,
+      "burns": []
+    },
+    {
+      "name": "Lander",
+      "source": "state",
+      "initial_state": [
+        0.9877777877092995,
+        -0.0007450531133145909,
+        0.004719896495831007,
+        0.20462296884836825,
+        2.1943942421358074,
+        0.34751085346513955
+      ],
+      "period_tu": 0.0,
+      "family_name": "L2 southern halo",
+      "family_index": 49,
+      "elements": {
+        "a_km": 6142.0,
+        "e": 0.6,
+        "i_deg": 57.0,
+        "raan_deg": 0.0,
+        "argp_deg": 90.0,
+        "true_anomaly_deg": 180.0
+      },
+      "centre": "moon",
+      "reference_plane": "moon orbit",
+      "propagation": "integrate",
+      "diameter_m": 5.0,
+      "albedo": 0.3,
+      "manifolds": "none",
+      "manifold_branches": 8,
+      "manifold_time_days": 10.0,
+      "relative_to": "",
+      "relative_position_km": [
+        0.0,
+        -50.0,
+        0.0
+      ],
+      "relative_velocity_m_s": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "keep_out_radius_km": 0.0,
+      "burns": [
+        {
+          "time_days": 0.5,
+          "delta_v_m_s": [
+            10.506749740405859,
+            -42.727155890794805,
+            -19.88914213692782
+          ]
+        }
+      ]
+    }
+  ],
+  "ground_stations": [
+    {
+      "name": "Sydney",
+      "latitude_deg": -33.87,
+      "longitude_deg": 151.21,
+      "altitude_km": 0.05,
+      "min_elevation_deg": 15.0,
+      "max_sun_elevation_deg": -12.0
+    }
+  ],
+  "sensors": [
+    {
+      "name": "Sydney 0.5 m telescope",
+      "station": "Sydney",
+      "limiting_magnitude": 18.5,
+      "lunar_exclusion_deg": 2.0,
+      "max_range_km": 0.0,
+      "max_slew_rate_deg_s": 0.0,
+      "sun_exclusion_deg": 30.0,
+      "earth_exclusion_deg": 0.0
+    }
+  ]
+}
