@@ -9,7 +9,9 @@ Checks:
   3. A converged L2 southern halo (the member closest to the 9:2 NRHO)
      with period and Jacobi constant for comparison with the JPL
      three-body periodic orbit catalogue.
-  4. 3D plot of the family and stability index against perilune radius.
+  4. The synodic resonance of every member, and which member stands
+     closest to each of the ratios missions quote.
+  5. 3D plot of the family and stability index against perilune radius.
 """
 
 import os
@@ -17,7 +19,7 @@ import os
 import numpy as np
 
 import plots
-from engine import crtbp, corrector
+from engine import crtbp, corrector, families
 from engine.crtbp import MU
 
 
@@ -158,18 +160,37 @@ def main():
     print("=" * 78)
     print("5. Family summary")
     print("=" * 78)
+    # Numbered from zero, the way model.family and every scenario index a
+    # member.  The continuation log in section 1 counts orbits as it finds
+    # them, so it runs one ahead of these numbers.
     print(f"  {'#':>3s} {'x0':>10s} {'z0':>10s} {'vy0':>10s} {'T [TU]':>9s} {'T [days]':>9s} "
-          f"{'C':>10s} {'r_peri km':>10s} {'r_apo km':>10s} {'nu':>9s}")
+          f"{'C':>10s} {'r_peri km':>10s} {'r_apo km':>10s} {'nu':>9s} {'N:M':>7s} {'off':>8s}")
     for k, orbit in enumerate(family):
         s = orbit["state0"]
-        print(f"  {k + 1:3d} {s[0]:10.6f} {s[2]:10.6f} {s[4]:10.6f} {orbit['period']:9.5f} "
+        revolutions, months, error = families.synodic_resonance(orbit["period"])
+        print(f"  {k:3d} {s[0]:10.6f} {s[2]:10.6f} {s[4]:10.6f} {orbit['period']:9.5f} "
               f"{crtbp.time_to_days(orbit['period']):9.4f} {orbit['jacobi']:10.6f} "
               f"{crtbp.length_to_km(orbit['perilune_radius']):10.1f} "
-              f"{crtbp.length_to_km(orbit['apolune_radius']):10.1f} {orbit['stability_index']:9.3f}")
+              f"{crtbp.length_to_km(orbit['apolune_radius']):10.1f} {orbit['stability_index']:9.3f} "
+              f"{revolutions:3d}:{months:<3d} {error * 100.0:+7.2f}%")
     print()
 
     print("=" * 78)
-    print("6. Figures")
+    print("6. Members standing in for the resonances missions quote")
+    print("=" * 78)
+    # Continuation lands members where it lands, so no member is exactly
+    # resonant; "off" is how far that member's period sits from the ratio.
+    print(f"  {'N:M':>5s} {'period [d]':>11s} {'member':>7s} {'off':>8s} {'r_peri km':>10s} {'nu':>7s}")
+    for revolutions, months in ((11, 3), (15, 4), (4, 1), (13, 3), (9, 2), (14, 3), (19, 4), (5, 1)):
+        wanted_days = months * crtbp.SYNODIC_MONTH_DAYS / revolutions
+        index, error = families.resonant_member(family, revolutions, months)
+        orbit = family[index]
+        print(f"  {revolutions:2d}:{months:<2d} {wanted_days:11.4f} {index:7d} {error * 100.0:+7.2f}% "
+              f"{crtbp.length_to_km(orbit['perilune_radius']):10.1f} {orbit['stability_index']:7.3f}")
+    print()
+
+    print("=" * 78)
+    print("7. Figures")
     print("=" * 78)
     print("  saved", plots.plot_family_3d(family))
     print("  saved", plots.plot_stability_index(family))

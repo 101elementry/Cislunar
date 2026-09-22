@@ -139,7 +139,8 @@ def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, st
                         (assets/playback.js) can run the clock itself
 
     Every trace carries a `meta` role (path, trail, halo, marker, body,
-    bodypath) so the playback script can find and move the right ones.
+    bodypath, manifold) so the playback script can find and move the
+    right ones.
     """
     figure = go.Figure()
 
@@ -156,10 +157,23 @@ def trajectory_figure(trajectories, bodies, body_radii, index=0, points=None, st
                 for branch in branches:
                     shown = subsample(branch["states"], 600)
                     label = f"{spacecraft} {kind} manifold"
+                    # A branch is a trajectory, not a static curve, so it is
+                    # drawn only as far as a spacecraft on it has flown by
+                    # the current time.  An unstable branch leaves the orbit
+                    # at departure_time and grows away from it; a stable one
+                    # has been falling toward the orbit for the whole flight
+                    # and lands on it at departure_time.  The branch is
+                    # integrated on a uniform time grid, so a fraction of the
+                    # flight time is the same fraction of the drawn points;
+                    # only the last point of a branch that ends on a surface
+                    # breaks that, and by less than one step.
                     figure.add_trace(go.Scatter3d(x=shown[:, 0], y=shown[:, 1], z=shown[:, 2], mode="lines",
                                                   name=label, legendgroup=label, showlegend=label not in legend_shown,
                                                   line=dict(width=1.5, color=MANIFOLD_COLORS[kind]),
-                                                  hoverinfo="name"))
+                                                  hoverinfo="name",
+                                                  meta={"role": "manifold", "kind": kind,
+                                                        "departure_s": float(crtbp.time_to_seconds(branch["departure_time"])),
+                                                        "flight_s": float(abs(crtbp.time_to_seconds(branch["times"][-1])))}))
                     legend_shown.add(label)
 
     colors = {}

@@ -20,6 +20,8 @@ Families
 All quantities are non-dimensional (LU, TU).
 """
 
+from fractions import Fraction
+
 import numpy as np
 
 from engine import corrector, crtbp
@@ -268,3 +270,57 @@ def build_l1_halo_family(mu=MU, seed_z_amplitude=0.02, stop_perilune_km=1800.0, 
             print("seed converged onto the northern family; mirroring to southern")
         family = mirror_family(family)
     return family
+
+
+# --------------------------------------------------------------------------
+# Synodic resonance
+# --------------------------------------------------------------------------
+
+def synodic_resonance(period, max_months=4):
+    """
+    The N:M synodic resonance nearest an orbit period: N revolutions of
+    the orbit in M synodic months.  Returns (N, M, relative_error),
+    where relative_error is the true number of revolutions per synodic
+    month divided by N / M, minus one.
+
+    This is the number a mission quotes with the libration point when it
+    names an orbit: Gateway flies the 9:2 southern L2 NRHO, CAPSTONE
+    flew the same one, and 4:1 and 11:3 members sit further up the same
+    family.  The resonance is with the Sun, not with the Moon.  The
+    synodic month is the time between two alignments of the Sun with the
+    Earth-Moon line, so an orbit whose period divides it in a fixed
+    small ratio meets the Sun at the same few places on every cycle,
+    and that is what fixes where the eclipses fall and how the solar
+    perturbation accumulates.
+
+    Nothing in the CRTBP knows about this, because the CRTBP has no Sun
+    in it.  The ratio is read off the period afterwards as a label; it
+    is not a property the dynamics in engine/crtbp.py enforce, and it is
+    the reason a higher fidelity model is needed before a resonant
+    member can be flown for years.
+
+    period     : orbit period, TU.  Must be shorter than max_months
+                 synodic months, which every halo and NRHO here is.
+    max_months : largest denominator considered.  Four covers the ratios
+                 in use (4:1, 9:2, 11:3, 19:4).
+    """
+    revolutions_per_month = crtbp.SYNODIC_MONTH_DAYS / crtbp.time_to_days(period)
+    nearest = Fraction(revolutions_per_month).limit_denominator(max_months)
+    return int(nearest.numerator), int(nearest.denominator), float(revolutions_per_month / float(nearest) - 1.0)
+
+
+def resonant_member(family, revolutions, months):
+    """
+    Index of the member of a family whose period is closest to the
+    N:M synodic resonance, and that member's relative period error.
+
+    Continuation lands members where it lands, so a family rarely holds
+    the exact resonant orbit; this says which member stands in for it
+    and how far off it is.  A member found this way is a starting point
+    for a corrector that targets the period directly, not the resonant
+    orbit itself.
+    """
+    wanted_period_days = months * crtbp.SYNODIC_MONTH_DAYS / revolutions
+    errors = np.array([crtbp.time_to_days(orbit["period"]) / wanted_period_days - 1.0 for orbit in family])
+    index = int(np.argmin(np.abs(errors)))
+    return index, float(errors[index])

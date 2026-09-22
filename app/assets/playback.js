@@ -9,9 +9,19 @@
    written to the timeline slider and the server redraws that instant.
 
    Traces are found by the `meta.role` the figure builder attaches:
-   path, trail, halo, marker (per spacecraft) and body, bodypath (per
-   body).  The layout's `meta` holds the clock: epoch, time step,
-   number of samples and the index the figure was drawn at.
+   path, trail, halo, marker (per spacecraft), body, bodypath (per
+   body) and manifold (one per branch).  The layout's `meta` holds the
+   clock: epoch, time step, number of samples and the index the figure
+   was drawn at.
+
+   A manifold branch is a trajectory too, so it is drawn only as far as
+   a spacecraft on it has flown.  An unstable branch leaves the orbit at
+   meta.departure_s and grows away from it over meta.flight_s; a stable
+   branch has been falling toward the orbit for meta.flight_s and lands
+   on it at meta.departure_s, so it is drawn from its far end inward.
+   Both reach full length and stay there.  Without this the tubes are
+   fixed curves and the only thing moving on a manifold scene is a
+   marker a few pixels wide.
 
    Moving a trace through Plotly.restyle re-runs Plotly's whole layout
    pipeline (about 200 ms for this scene), far too slow for video.  The
@@ -48,7 +58,7 @@
     var key = graph.parentElement.id;
     var cache = state.caches[key];
     if (cache && cache.data === graph.data) { return cache; }
-    cache = {data: graph.data, spacecraft: {}, bodies: {}};
+    cache = {data: graph.data, spacecraft: {}, bodies: {}, manifolds: []};
     graph._fullData.forEach(function (trace) {
       var meta = trace.meta || {};
       if (meta.role === "path") {
@@ -58,6 +68,10 @@
       } else if (meta.role === "trail" || meta.role === "halo" || meta.role === "marker") {
         cache.spacecraft[meta.spacecraft] = cache.spacecraft[meta.spacecraft] || {};
         cache.spacecraft[meta.spacecraft][meta.role] = {uid: trace.uid, samples: meta.samples || 0};
+      } else if (meta.role === "manifold") {
+        cache.manifolds.push({uid: trace.uid, kind: meta.kind, departure: meta.departure_s,
+                              flight: meta.flight_s, drawn: -1,
+                              x: toArray(trace.x), y: toArray(trace.y), z: toArray(trace.z)});
       } else if (meta.role === "bodypath") {
         cache.bodies[meta.body] = cache.bodies[meta.body] || {};
         cache.bodies[meta.body].path = {stride: meta.stride || 1,
@@ -121,6 +135,33 @@
     }
   }
 
+  // Each manifold branch is shown up to the point its spacecraft has
+  // reached.  The fraction of the flight already flown is the fraction
+  // of the branch's points to draw, counted from the orbit for an
+  // unstable branch and from the far end for a stable one.  A branch
+  // whose drawn length has not changed since the last frame is left
+  // alone; that is what keeps a hundred and sixty branches inside a
+  // frame budget.
+  function drawManifolds(graph, cache, sampleIndex, pending) {
+    if (cache.manifolds.length === 0) { return; }
+    var seconds = sampleIndex * (graph._fullLayout.meta.time_step_s || 0);
+    cache.manifolds.forEach(function (branch) {
+      var count = branch.x.length;
+      if (count < 2 || !(branch.flight > 0)) { return; }
+      var flown = (seconds - branch.departure) / branch.flight;
+      if (branch.kind === "stable") { flown += 1.0; }
+      flown = Math.max(0.0, Math.min(1.0, flown));
+      var steps = Math.round(flown * (count - 1));
+      if (steps === branch.drawn) { return; }
+      branch.drawn = steps;
+      var first = branch.kind === "stable" ? count - 1 - steps : 0;
+      var last = first + steps;
+      moveTrace(graph, branch.uid, {x: branch.x.slice(first, last + 1),
+                                    y: branch.y.slice(first, last + 1),
+                                    z: branch.z.slice(first, last + 1)}, pending);
+    });
+  }
+
   function draw(graph, sampleIndex, includeBodies) {
     var cache = cacheFor(graph);
     var pending = {indices: [], x: [], y: [], z: [], redraw: null};
@@ -141,6 +182,7 @@
         moveTrace(graph, entry.trail.uid, {x: tx, y: ty, z: tz}, pending);
       }
     });
+    drawManifolds(graph, cache, sampleIndex, pending);
     if (includeBodies) {
       Object.keys(cache.bodies).forEach(function (name) {
         var body = cache.bodies[name];
@@ -215,6 +257,19 @@
           return Math.round(state.index);
         }
         return window.dash_clientside.no_update;
+      },
+
+      // A server redraw hands the browser the whole of every manifold
+      // branch, because growing a branch with the clock is the browser's
+      // job.  Applying the clock again once the new figure is on screen
+      // keeps a paused scene at the instant the slider reads.
+      redraw: function (figure, figureB, sliderValue) {
+        if (state.playing) { return window.dash_clientside.no_update; }
+        var index = sliderValue || 0;
+        window.requestAnimationFrame(function () {
+          graphs().forEach(function (graph) { draw(graph, index, true); });
+        });
+        return index;
       }
     }
   });

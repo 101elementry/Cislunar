@@ -29,7 +29,7 @@ from engine import crtbp, frames, interplanetary
 from model import runner
 from model.interplanetary import transfer_scene
 from model.ephemeris import load_ephemeris
-from model.family import load_families
+from model.family import load_families, resonance, resonance_label, RESONANCE_TOLERANCE
 from model.scenario import (Scenario, Spacecraft, GroundStation, OpticalSensor, ELEMENT_PRESETS,
                             rendezvous_example)
 from app import figures
@@ -73,21 +73,57 @@ def orbit_facts(orbit):
             f"{float(orbit['stability_index']):,.2f}")
 
 
+def resonance_text(orbit):
+    """
+    The synodic resonance of a family member as a phrase for a facts
+    table: N revolutions in M synodic months, which with the libration
+    point is how a mission names one of these orbits (Gateway flies the
+    9:2 southern L2 NRHO).  A member that only stands near a ratio says
+    how far off it is, and one that stands near none says so.
+    """
+    found = resonance(orbit)
+    if found is None:
+        return "no low-order synodic resonance"
+    revolutions, months, error = found
+    if abs(error) <= RESONANCE_TOLERANCE:
+        return f"{revolutions}:{months} synodic resonance"
+    return f"near {revolutions}:{months} ({abs(error) * 100.0:.1f} % off)"
+
+
+# Member 49 is the Gateway-like orbit every mission scene flies.  Naming
+# it the same way in every facts table saves a reader from having to work
+# out which orbit a scene is about.
+GATEWAY_MEMBER = 49
+
+
+def gateway_orbit_name():
+    """One line naming the orbit the mission scenes use."""
+    orbit = FAMILIES["L2 southern halo"][GATEWAY_MEMBER]
+    return (f"L2 southern halo member {GATEWAY_MEMBER}, {resonance_text(orbit)}, "
+            f"{crtbp.time_to_days(orbit['period']):.2f} d period, "
+            f"perilune {crtbp.length_to_km(orbit['perilune_radius']):,.0f} km")
+
+
 def scene_halo_to_nrho():
     family = FAMILIES["L2 southern halo"]
-    members = [0, 10, 20, 30, 40, 49, 60, 68]
+    members = [0, 10, 20, 30, 36, 40, 49, 60, 68]
+    # The members the facts table names: the two ends, and the three that
+    # stand closest to the resonances missions quote.
+    members_shown = [0, 20, 36, 49, 68]
     scenario = Scenario(name="From halo to NRHO", epoch_utc="2026-01-01T00:00:00",
                         duration_days=15.0, time_step_s=300.0)
     for index in members:
-        label = f"Member {index}" + (", the 9:2 NRHO" if index == 49 else "")
+        named = resonance_label(family[index])
+        label = f"Member {index}" + (f", the {named}" if named else "")
         scenario.add(Spacecraft(name=label, source="family", family_name="L2 southern halo",
                                 family_index=index, propagation="periodic"))
 
     def facts(results):
-        rows = []
-        for index in (0, 20, 49, 68):
+        rows = [("Family", f"L2 southern halo, {len(family)} members, mu = {crtbp.MU}")]
+        for index in members_shown:
             period, perilune, stability = orbit_facts(family[index])
-            rows.append((f"Member {index}", f"{period}, perilune {perilune}, stability index {stability}"))
+            rows.append((f"Member {index}", f"{resonance_text(family[index])}, {period}, perilune {perilune}, "
+                                            f"stability index {stability}"))
         return rows
 
     return {"slug": "halo-to-nrho", "kicker": "Orbit families", "title": "From halo orbit to NRHO",
@@ -100,31 +136,52 @@ def scene_halo_to_nrho():
                 "The first member is a small, nearly flat halo that hugs L2, far from the Moon. Step along the "
                 "family and the orbit grows, tips upright, its closest approach to the Moon falls, and its "
                 "instability almost disappears. "
-                "That end of the family is the near rectilinear halo orbits. Member 49 completes nine laps "
-                "for every two lunar months, and it is the orbit NASA chose for the Gateway station."],
+                "That end of the family is the near rectilinear halo orbits.",
+                "An NRHO is named by two things: the libration point and branch it belongs to, and its synodic "
+                "resonance. Every orbit on this page is an L2 southern halo, southern because apolune stands "
+                "over the lunar south pole. The resonance is the ratio N:M of revolutions of the orbit to "
+                "synodic months, the month being the time between two alignments of the Sun with the "
+                "Earth-Moon line. Member 49 turns nine times in two synodic months, so it is the 9:2, the "
+                "orbit Gateway and CAPSTONE fly; member 36 is the 4:1. The table lists the ratio of every "
+                "member it names, and how far that member sits from the exact ratio.",
+                "The resonance is a resonance with the Sun, and it is what fixes where the eclipses fall. "
+                "Nothing on this page computes it from the dynamics, because the circular restricted "
+                "three-body problem has no Sun in it: the ratio is read off the period afterwards. Holding a "
+                "resonant orbit for years is a question for a model that carries solar gravity and a real "
+                "lunar gravity field, which is the next step for this tool rather than something it does "
+                "now."],
             "look_for": [
                 "The spacecraft on the small orbits race past the Moon and linger over the south pole.",
                 "The stability index falls from several hundred on the first halo to about one on the NRHOs. "
                 "A value of one means a small error no longer grows from lap to lap.",
                 "Rotate the view edge on. The NRHOs look almost like straight lines, which is where the name "
-                "comes from."],
+                "comes from.",
+                "The 9:2 is not the last member. The family runs on past it to a perilune under 2,000 km, "
+                "close to the 5:1, where the orbit is even more nearly rectilinear."],
             "facts": facts}
 
 
 def scene_manifolds():
     family = FAMILIES["L2 southern halo"]
     index = 8
+    flight_days = 22.0
+    # Long enough for every branch to depart and then fly its full length,
+    # so the clock covers the whole of the tubes rather than stopping part
+    # way through them.
+    period_days = float(crtbp.time_to_days(family[index]["period"]))
     scenario = Scenario(name="Invariant manifolds", epoch_utc="2026-01-01T00:00:00",
-                        duration_days=float(crtbp.time_to_days(family[index]["period"])) * 2.0, time_step_s=300.0)
+                        duration_days=period_days + flight_days, time_step_s=300.0)
     scenario.add(Spacecraft(name="L2 halo", source="family", family_name="L2 southern halo", family_index=index,
                             propagation="periodic", manifolds="both", manifold_branches=40,
-                            manifold_time_days=22.0))
+                            manifold_time_days=flight_days))
 
     def facts(results):
         period, perilune, stability = orbit_facts(family[index])
         return [("Orbit", f"L2 southern halo, member {index}"), ("Period", period),
+                ("Synodic ratio", resonance_text(family[index])),
                 ("Stability index", stability),
-                ("Branches", "40 leaving and 40 arriving, each followed for 22 days")]
+                ("Branches", "40 departure points around the orbit, two directions off each: "
+                              f"80 paths leaving and 80 arriving, each flown for {flight_days:.0f} days")]
 
     return {"slug": "manifolds", "kicker": "Transport", "title": "Free paths on and off an orbit",
             "tagline": "The invariant manifolds of an unstable halo orbit, the natural routes of the "
@@ -138,9 +195,19 @@ def scene_manifolds():
                 "The green tube is the stable manifold. A spacecraft placed on it winds onto the orbit with no "
                 "burn at all. The directions come from the eigenvectors of the monodromy matrix, which is the "
                 "state transition matrix over one full lap. Mission designers use these tubes as low cost "
-                "routes between the Earth, the Moon and the Lagrange points."],
+                "routes between the Earth, the Moon and the Lagrange points.",
+                "Every branch here is a trajectory, not a decoration, so the clock runs along it. Press play "
+                "and each red path is drawn only as far as a spacecraft that left the orbit at that point has "
+                "flown; each green path is drawn from where an arriving spacecraft set out, up to where it has "
+                "got to, and it touches down on the orbit at the moment the marker passes the arrival point. "
+                "The tubes are the union of a hundred and sixty such trajectories.",
+                "This member is a large, strongly unstable halo, not an NRHO. It is the useful case for "
+                "manifolds: the stability index of the 9:2 NRHO is about 1.3, and an orbit that barely "
+                "diverges has manifolds so weak that riding one takes months."],
             "look_for": [
                 "One half of each tube heads toward the Moon and the other half escapes to the far side.",
+                "Watch a single green path arrive. It reaches the orbit exactly as the white marker passes "
+                "the point it is aimed at, because that is the point it was integrated backwards from.",
                 "Zoom toward the orbit. The red and green paths meet it tangentially, because close to the "
                 "orbit they differ from it by almost nothing.",
                 "A stable orbit such as a distant retrograde orbit has no tubes at all."],
@@ -197,7 +264,8 @@ def scene_sydney_tracking():
     def facts(results):
         windows = results["windows"][pair]
         lengths_h = [(stop - start) / 3600.0 for start, stop in windows]
-        return [("Access windows in 30 days", f"{len(windows)}"),
+        return [("Orbit observed", gateway_orbit_name()),
+                ("Access windows in 30 days", f"{len(windows)}"),
                 ("Longest window", f"{max(lengths_h):.1f} h" if lengths_h else "none"),
                 ("Fraction of the month observable", f"{100.0 * results['duty_cycle'][pair]:.1f} %"),
                 ("Sky model", results["sky_model"])]
@@ -268,7 +336,8 @@ def scene_proximity():
         series = results["observations"][pair]["geometry"]
         windows = results["windows"][pair]
         hours_in_range = float(np.sum(series.range_km <= 500.0)) * scenario.time_step_s / 3600.0
-        return [("Separation at the start", f"{series.range_km[0]:,.0f} km, directly behind the target"),
+        return [("Target orbit", gateway_orbit_name()),
+                ("Separation at the start", f"{series.range_km[0]:,.0f} km, directly behind the target"),
                 ("Separation after 3 days", f"{series.range_km[-1]:,.0f} km"),
                 ("Time within camera range", f"{hours_in_range:.1f} h of {scenario.duration_days * 24.0:.0f} h"),
                 ("Camera access", f"{100.0 * results['duty_cycle'][pair]:.0f} % of the span, "
@@ -316,6 +385,7 @@ def scene_lander():
         separation = crtbp.length_to_km(np.linalg.norm(
             results["trajectories"]["Lander"][:, :3] - results["trajectories"]["Gateway"][:, :3], axis=1))
         return [("Parking orbit", "100 km circular, polar"),
+                ("Target orbit", gateway_orbit_name()),
                 ("Transfer to the first hold point", f"{burns[0][0] * 24.0:.0f} hours"),
                 ("Burn to stop at 30 km", f"{burns[0][1]:.0f} m/s"),
                 ("Stepped approach, four burns", f"{sum(size for _, size in burns[1:]):.1f} m/s"),
@@ -358,6 +428,7 @@ def scene_crew():
         burns = burn_sizes(scenario, "Crew vehicle")
         windows = results["windows"][pair]
         return [("Parking orbit", "200 km circular Earth orbit"),
+                ("Target orbit", gateway_orbit_name()),
                 ("Injection burn", "about 3,130 m/s, before the scene starts"),
                 ("Flyby burn, 150 km above the Moon", f"{burns[0][1]:.0f} m/s on day {burns[0][0]:.1f}"),
                 ("NRHO insertion burn", f"{burns[1][1]:.0f} m/s on day {burns[1][0]:.1f}"),
@@ -530,11 +601,13 @@ def thumbnail_svg(trajectories, manifolds, bodies, body_radii, size=(320, 200)):
 
 TOPBAR = """<header class="topbar">
   <a class="brand" href="index.html">Cislunar</a>
-  <nav class="nav"><a href="index.html#scenes">Scenes</a><a href="index.html#method">Method</a></nav>
+  <nav class="nav"><a href="index.html#scenes">Scenes</a><a href="index.html#method">Method</a><a href="index.html#model">Model</a></nav>
 </header>"""
 
 FOOTER = (f'<footer class="footer"><span>{html.escape(AUTHOR)}. {html.escape(AUTHOR_LINE)}.</span>'
-          '<span>Computed with Python, numpy and scipy. Sun and Moon from JPL DE440.</span></footer>')
+          '<span>Dynamics: circular restricted three-body problem, Earth and Moon as point masses '
+          '(<a href="index.html#model">assumptions</a>). Sun and Moon for observation geometry from '
+          'JPL DE440.</span></footer>')
 
 PAGE_SCRIPTS = (f'<script src="{PLOTLY_SCRIPT}"></script>\n<script src="assets/playback.js"></script>\n'
                 '<script src="assets/zoom_to_cursor.js"></script>\n<script src="assets/showcase.js"></script>')
@@ -715,6 +788,41 @@ def index_page(cards, hero_data):
     </div>
     <p class="fine">These pages are precomputed, so the inputs are fixed. The full tool runs locally with an
     editable scenario, parameter sweeps, orbit determination filters and a GMAT export.</p>
+  </section>
+  <section class="section" id="model">
+    <div class="section-head"><p class="label">Model</p><p class="label">what it carries and what it does not</p></div>
+    <div class="assumption-grid">
+      <div><p class="label">In the equations of motion</p>
+      <ul class="assumptions">
+        <li>The circular restricted three-body problem, Earth-Moon, mass ratio mu = 0.01215058560962404,
+        with LU = 384,400 km and TU = 375,190.26 s.</li>
+        <li>Earth and Moon as <strong>point masses</strong> on a common circular orbit, in a frame that rotates
+        with them at a constant rate. The spacecraft has no mass.</li>
+        <li>Nothing else. Every trajectory on this site, including the two-body elements scene and both
+        mission legs, is integrated with these equations and no others.</li>
+        <li>Integration with DOP853 at a relative and absolute tolerance of 1e-12; the Jacobi constant is
+        checked afterwards and holds to about 1e-11 over ten time units.</li>
+      </ul></div>
+      <div><p class="label">Not in them</p>
+      <ul class="assumptions">
+        <li>No lunar gravity field beyond the point mass: no J2, no GRAIL spherical harmonics, no mascons.
+        Perilune here is a few thousand kilometres, where the higher harmonics are small, but they are not
+        zero and they are not modelled.</li>
+        <li>No solar gravity, no solar radiation pressure, no Earth oblateness, no lunar librations.</li>
+        <li>No eccentricity or inclination in the Moon's orbit. The real orbit has e = 0.055 and is tilted
+        about 5 degrees to the ecliptic; the model's is a circle.</li>
+        <li>No ephemeris dynamics. JPL DE440 is used only to place the Sun, Moon, Earth and the observing
+        site for the observation geometry, never in the equations of motion.</li>
+      </ul></div>
+    </div>
+    <p class="fine">What that costs. A CRTBP periodic orbit repeats exactly; a real NRHO does not, because
+    solar gravity and the Moon's true orbit change its period and perilune from one revolution to the next,
+    which is also why a real one needs a station keeping burn every revolution. The synodic resonance that
+    names these orbits, the 9:2 and the 4:1, is a resonance with the Sun, so it is a label computed from the
+    period here rather than anything the dynamics enforce. And in the estimation work the simulated truth and
+    the filter share these same equations, so the filter meets no dynamic mismodelling: the errors and the
+    smallest detectable manoeuvres that come out of it are a floor, and moving the whole ladder onto an
+    ephemeris model is the step that would test it.</p>
   </section>
 </main>
 {FOOTER}

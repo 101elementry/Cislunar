@@ -5,6 +5,46 @@ circular restricted three-body problem, periodic orbit families found
 by differential correction and continuation, their stability and
 manifolds, and a mission-analysis tool built on top of them.
 
+## Model assumptions
+
+Every trajectory this repository produces, without exception, comes from
+the circular restricted three-body problem:
+
+- Earth and Moon as **point masses** on a common circular orbit, mass
+  ratio mu = 0.01215058560962404, in a frame rotating with them at a
+  constant rate.  The spacecraft has no mass.
+- DOP853 at a relative and absolute tolerance of 1e-12, with the Jacobi
+  constant checked afterwards (drift about 1e-11 over 10 TU).
+
+Not modelled, anywhere:
+
+- No lunar gravity field beyond the point mass: no J2, no spherical
+  harmonics, no mascons.
+- No solar gravity, no solar radiation pressure, no Earth oblateness,
+  no lunar librations.
+- No eccentricity (the real value is 0.055) or inclination in the
+  Moon's orbit.
+- No ephemeris dynamics.  JPL DE440 is used only to place the Sun,
+  Moon, Earth and the observing site for observation geometry, never in
+  the equations of motion.
+
+Three consequences worth stating before any result is quoted.  A CRTBP
+periodic orbit repeats exactly and a real NRHO does not, which is why a
+real one needs a station keeping burn every revolution.  The synodic
+resonance that names these orbits (`engine.families.synodic_resonance`)
+is a resonance with the Sun, so here it is a label computed from the
+period rather than anything the dynamics enforce.  And in the estimation
+work the simulated truth and the filter share these equations, so the
+filter meets no dynamic mismodelling: the errors and minimum detectable
+manoeuvres are a floor, and repeating the ladder on an ephemeris model
+is what would test it.
+
+Orbits are named the way missions name them, by the libration point and
+branch plus the synodic resonance: the Gateway orbit is the 9:2 southern
+L2 NRHO, member 49 of `output/halo_family.npz`.  `python validate.py`
+prints the resonance of every member and which member stands closest to
+each of 11:3, 4:1, 9:2 and 19:4.
+
 ## Layout
 
 Three layers with a one-way dependency: `app` uses `model`, `model`

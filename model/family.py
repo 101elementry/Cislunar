@@ -12,7 +12,7 @@ import os
 
 import numpy as np
 
-from engine import crtbp, corrector
+from engine import corrector, crtbp, families
 
 FAMILY_FILE = os.path.join("output", "halo_family.npz")
 FAMILIES_DIR = os.path.join("output", "families")
@@ -84,8 +84,47 @@ def nearest_member(family, perilune_km=None, period_days=None):
     return int(np.argmin(distance))
 
 
+# How close a member's period has to sit to a low-order synodic ratio
+# before it is named by it.  Continuation puts members where it puts
+# them, so a member stands in for the resonant orbit rather than being
+# it; half a per cent of the period is about one member's spacing along
+# the NRHO end of the halo family.
+RESONANCE_TOLERANCE = 0.005
+
+# Only a low-order ratio means anything.  A short orbit is always within
+# a whisker of some N:1, and nobody calls a 1.2 day DRO the 24:1.
+MAX_RESONANCE_REVOLUTIONS = 20
+
+
+def resonance(orbit):
+    """
+    (N, M, relative error) of the nearest synodic resonance worth
+    naming, or None when the nearest ratio is too high an order to mean
+    anything.  N:M is N revolutions of the orbit in M synodic months,
+    which with the libration point is how a mission names one of these
+    orbits: Gateway flies the 9:2 southern L2 NRHO.
+    """
+    revolutions, months, error = families.synodic_resonance(orbit["period"])
+    if revolutions > MAX_RESONANCE_REVOLUTIONS:
+        return None
+    return revolutions, months, error
+
+
+def resonance_label(orbit):
+    """
+    The N:M resonance as a short label, or an empty string when the
+    orbit is not close enough to one to be named by it.
+    """
+    found = resonance(orbit)
+    if found is None or abs(found[2]) > RESONANCE_TOLERANCE:
+        return ""
+    return f"{found[0]}:{found[1]}"
+
+
 def member_label(index, orbit):
     """One-line description of a family member, used by the interface."""
-    return (f"{index}: T = {crtbp.time_to_days(orbit['period']):.2f} d, "
+    resonance = resonance_label(orbit)
+    return (f"{index}: T = {crtbp.time_to_days(orbit['period']):.2f} d"
+            + (f" ({resonance})" if resonance else "") + ", "
             f"perilune {crtbp.length_to_km(orbit['perilune_radius']):,.0f} km, "
             f"C = {orbit['jacobi']:.4f}")

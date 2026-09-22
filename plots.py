@@ -21,17 +21,17 @@ from matplotlib import animation
 from matplotlib.collections import LineCollection
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
-from engine import crtbp, corrector
+from engine import crtbp, corrector, families
 from engine.crtbp import MU
 from model.family import FAMILY_FILE, load_family
 
 OUTPUT_DIR = "output"
 
-# Approximate period of a 9:2 lunar-synodic resonant NRHO (the Gateway
-# orbit): two revolutions per nine synodic months, in TU.  Used to pick a
-# representative NRHO out of the family.
-SYNODIC_MONTH_DAYS = 29.530589
-PERIOD_9_2_TU = crtbp.time_to_nondim(2.0 / 9.0 * SYNODIC_MONTH_DAYS * crtbp.SECONDS_PER_DAY)
+# Period of the 9:2 lunar-synodic resonant NRHO (the Gateway orbit), in
+# TU: nine revolutions of the orbit in two synodic months, so one
+# revolution takes two ninths of a month.  Used to pick a representative
+# NRHO out of the family.
+PERIOD_9_2_TU = crtbp.time_to_nondim(2.0 / 9.0 * crtbp.SYNODIC_MONTH_DAYS * crtbp.SECONDS_PER_DAY)
 
 # Stability index bound used to shade the NRHO region.
 NRHO_STABILITY_BOUND = 2.0
@@ -122,8 +122,8 @@ def coloured_line_3d(ax, points, values, cmap, norm, linewidth=1.5):
 
 def pick_representative_nrho(family):
     """The family member whose period is closest to the 9:2 resonance."""
-    periods = np.array([orbit["period"] for orbit in family])
-    return family[int(np.argmin(np.abs(periods - PERIOD_9_2_TU)))]
+    index, _ = families.resonant_member(family, 9, 2)
+    return family[index]
 
 
 def nrho_mask(family):

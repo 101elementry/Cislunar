@@ -74,6 +74,47 @@ is not what limits detection.  (3) A second station (Canberra DSN
 site) to show what range or a second angle baseline buys.  (4) Write
 up the initialisation finding of rung 2 as its own section.
 
+## Supervisor feedback, 22 Sep 2026
+
+Three things were unclear or wrong on the public site, all now fixed.
+
+1. **Which resonance, which libration point.**  Nothing named the
+   orbits the way a mission does.  `engine.families.synodic_resonance`
+   gives the N:M nearest an orbit period and `resonant_member` gives
+   the member standing closest to a named ratio; `model.family`
+   applies the tolerance (0.5 % of period, about one member's spacing)
+   and the order bound that stops a short orbit being called the 24:1.
+   Member labels, the interface's status lines, `validate.py` section
+   5 and 6, and every facts table on the site now carry it.  Members
+   standing in for the ratios: 11:3 at 29 (0.74 % off), 4:1 at 36
+   (0.38 %), 9:2 at 49 (0.02 %), 19:4 at 58 (0.08 %); the family stops
+   just short of the 5:1, at member 68 (0.62 % off).  Note
+   `validate.py`'s family table is now numbered from zero like
+   everything else; the continuation log in section 1 still counts
+   from one as it finds orbits.
+2. **The gravity model was never stated.**  It is the CRTBP with both
+   primaries as point masses, and nothing else, anywhere.  Said plainly
+   in README.md, in a Model section on the site's landing page, and in
+   the footer of every page.
+3. **The manifold scene did not animate.**  The tubes were static
+   curves and the only moving thing was a marker a few pixels wide, so
+   the page looked broken.  Manifold traces now carry a `meta.role` and
+   `app/assets/playback.js` draws each branch only as far as a
+   spacecraft on it has flown; the scene runs one orbit period plus the
+   22-day flight so the whole unfurling fits in the clock.  Checked in
+   Chromium: at the end of the run the tubes match the old static
+   picture exactly.
+
+**Fidelity is the next step, before anything new.**  The supervisor's
+standing concern is that every number here comes from one model whose
+truth and filter share the same equations, so the estimation results
+have no dynamic mismodelling in them and are a floor.  The cheapest
+honest test is the export that already exists: take member 49 out
+through `scripts/export_gmat.py`, propagate the same epoch and state in
+a point-mass-plus-solar model, and report how far the two diverge over
+one revolution and over a month.  That number belongs in the thesis
+whatever the rest of it says.
+
 ## What exists and is verified
 
 **Dynamics and corrector (engine/crtbp.py, engine/corrector.py)**

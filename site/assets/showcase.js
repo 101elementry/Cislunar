@@ -115,9 +115,17 @@
   }
 
   Promise.all(drawn).then(function () {
-    showSample(0);
     window.requestAnimationFrame(follow);
     var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!still) { setPlaying(true); }
+    // A scene that will not play is shown at the end of the run instead
+    // of the start, because parts of it are drawn as the clock reaches
+    // them: at sample zero a manifold scene has barely any of its tubes.
+    if (still) {
+      if (scrubber) { scrubber.value = scrubber.max; }
+      showSample(page.n_samples - 1);
+    } else {
+      showSample(0);
+      setPlaying(true);
+    }
   });
 })();

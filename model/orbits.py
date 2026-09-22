@@ -11,6 +11,7 @@ without doing any physics in a callback.
 import numpy as np
 
 from engine import corrector, crtbp, frames, kepler, rendezvous
+from model import family
 
 
 def plane_rotation_for(spacecraft, epoch_jd, ephemeris=None):
@@ -104,6 +105,7 @@ def correct_to_periodic(spacecraft, families, epoch_jd, fixed=None, period_guess
             "iterations": int(orbit["iterations"]),
             "residual": float(orbit["residual"]),
             "period_days": crtbp.time_to_days(orbit["period"]),
+            "resonance": family.resonance_label(orbit),
             "jacobi": float(orbit["jacobi"]),
             "perilune_km": crtbp.length_to_km(orbit["perilune_radius"]),
             "apolune_km": crtbp.length_to_km(orbit["apolune_radius"]),

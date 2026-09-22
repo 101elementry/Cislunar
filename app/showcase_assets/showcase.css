@@ -151,6 +151,13 @@ p { margin: 0 0 1em; }
 .method-grid p { margin: 0; color: var(--text-secondary); font-size: 14px; }
 .fine { margin: 28px 0 0; max-width: 760px; color: var(--text-muted); font-size: 13px; }
 
+/* What the model does and does not carry, side by side. */
+.assumption-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--rule); }
+.assumption-grid > div { padding: 24px 28px 12px 0; }
+.assumption-grid > div + div { padding-left: 28px; border-left: 1px solid var(--rule); }
+ul.assumptions { margin: 12px 0 0; padding-left: 18px; color: var(--text-secondary); font-size: 14px; }
+ul.assumptions li { margin: 0 0 10px; }
+
 /* ---- scene page ------------------------------------------------------- */
 
 .scene-head {
@@ -281,6 +288,8 @@ p { margin: 0 0 1em; }
   .scene-title { font-size: 17px; }
   .method-grid { grid-template-columns: minmax(0, 1fr); }
   .method-grid > div + div { padding-left: 0; border-left: none; border-top: 1px solid var(--rule); }
+  .assumption-grid { grid-template-columns: minmax(0, 1fr); }
+  .assumption-grid > div + div { padding-left: 0; border-left: none; border-top: 1px solid var(--rule); }
   .scene-head { grid-template-columns: minmax(0, 1fr); gap: 12px; padding-top: 28px; }
   .scene-head .tagline { justify-self: start; }
   .stage.split { grid-template-columns: minmax(0, 1fr); }

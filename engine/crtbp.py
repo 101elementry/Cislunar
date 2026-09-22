@@ -56,6 +56,13 @@ MOON_RADIUS_ND = MOON_RADIUS_KM / LENGTH_UNIT_KM
 
 SECONDS_PER_DAY = 86400.0
 
+# Mean synodic month, days: the time between one alignment of the Sun
+# with the Earth-Moon line and the next.  There is no Sun in the CRTBP,
+# so this number never enters the equations of motion.  It appears only
+# where an orbit is labelled by its synodic resonance, the N:M that
+# names the 9:2 NRHO and its neighbours (see families.synodic_resonance).
+SYNODIC_MONTH_DAYS = 29.530588
+
 
 def length_to_km(length_nd):
     """Convert a non-dimensional length (LU) to kilometres."""

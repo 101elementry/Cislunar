@@ -26,7 +26,7 @@ from dash import Dash, dcc, html, dash_table, Input, Output, State, ALL, Clients
 
 from engine import crtbp, frames
 from model import orbits, runner, sweep
-from model.family import load_families, nearest_member, member_label, DEFAULT_FAMILY_NAME
+from model.family import load_families, nearest_member, member_label, resonance_label, DEFAULT_FAMILY_NAME
 from model.ephemeris import load_ephemeris
 from model.scenario import (Scenario, Spacecraft, GroundStation, OpticalSensor, example_scenario,
                             rendezvous_example,
@@ -93,6 +93,7 @@ dash_app.layout = html.Div([
     dcc.Store(id="layout-store", data={"left": True, "right": True, "bottom": True}),
     dcc.Store(id="split-store", data=False),
     dcc.Store(id="play-store", data=False),
+    dcc.Store(id="playback-sink", data=0),
     dcc.Download(id="download"),
 
     # ---- top bar ----
@@ -346,6 +347,18 @@ dash_app.clientside_callback(
     ClientsideFunction(namespace="playback", function_name="control"),
     Output("time-slider", "value", allow_duplicate=True),
     Input("play-store", "data"), Input("play-speed", "value"),
+    State("time-slider", "value"), prevent_initial_call=True)
+
+
+# A server redraw sends the whole of every manifold branch, because how
+# far along a branch the clock has reached is the browser's business
+# (assets/playback.js grows the branches).  Once the new figure is on
+# screen the clock is applied to it again, so a paused scene shows the
+# instant the slider reads rather than every tube at full length.
+dash_app.clientside_callback(
+    ClientsideFunction(namespace="playback", function_name="redraw"),
+    Output("playback-sink", "data"),
+    Input("view-3d", "figure"), Input("view-3d-b", "figure"),
     State("time-slider", "value"), prevent_initial_call=True)
 
 
@@ -801,7 +814,9 @@ def edit_scenario(tree_clicks, add_clicks, add_range_clicks, remove_clicks, appl
             family = FAMILIES[obj.family_name]
             obj.family_index = nearest_member(family, perilune_km, period_days)
             chosen = family[obj.family_index]
-            message = (f"Member {obj.family_index}: period {crtbp.time_to_days(chosen['period']):.3f} d, "
+            resonance = resonance_label(chosen)
+            message = (f"Member {obj.family_index}: period {crtbp.time_to_days(chosen['period']):.3f} d"
+                       + (f" (the {resonance})" if resonance else "") + ", "
                        f"perilune {crtbp.length_to_km(chosen['perilune_radius']):,.0f} km, "
                        f"apolune {crtbp.length_to_km(chosen['apolune_radius']):,.0f} km, "
                        f"stability index {chosen['stability_index']:.2f}.")
@@ -830,7 +845,8 @@ def edit_scenario(tree_clicks, add_clicks, add_range_clicks, remove_clicks, appl
                 return (no_update, no_update) + settings_unchanged + (
                     status_message(f"Correction failed: {error}", "error"),)
             message = (f"Converged with the {info['corrector']} corrector in {info['iterations']} iterations "
-                       f"(residual {info['residual']:.1e}): period {info['period_days']:.4f} d, "
+                       f"(residual {info['residual']:.1e}): period {info['period_days']:.4f} d"
+                       + (f" (the {info['resonance']})" if info["resonance"] else "") + ", "
                        f"C = {info['jacobi']:.5f}, perilune {info['perilune_km']:,.0f} km, "
                        f"apolune {info['apolune_km']:,.0f} km, stability index {info['stability_index']:.2f}. "
                        f"Propagation set to periodic.")
