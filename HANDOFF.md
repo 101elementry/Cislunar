@@ -115,6 +115,25 @@ a point-mass-plus-solar model, and report how far the two diverge over
 one revolution and over a month.  That number belongs in the thesis
 whatever the rest of it says.
 
+*Done 24 Sep 2026, in the repository rather than GMAT:*
+`engine/ephemeris_dynamics.py` and `scripts/ephemeris_divergence.py`
+(fig14).  Checks: frame change there and back to 6e-17; Moon-only
+energy held to 6e-12 over a lap; the Moon-centred equations against a
+solar-system-barycentre integration of the same forces agree to 60 km
+at the end of a lap on a path 220,000 km out (the barycentric one loses
+digits to its large coordinates).  Result for member 49 from
+2026-01-01, uncorrected: past 100 km from the orbit in 0.8 d, past
+1,000 km in 6.2 d, perilunes 3,048, 2,869, 2,268 km, Moon impact on
+day 18.3; across eight epochs of the month, 1,000 km in 2 to 8 d.  The
+Sun changes it little; the circular lunar orbit is the main error.  A
+first attempt that scaled velocity by the true turning rate of the
+Earth-Moon line (13 % above the mean near perigee) gave the spacecraft
+more than lunar escape speed at perilune; the mapping now uses Kepler's
+time unit for the day's distance, as the docstring explains.  Next:
+multiple shooting to correct member 49 into the ephemeris model, then
+use that trajectory as the truth for rungs 1 to 4 with the filter left
+on the CRTBP.
+
 ## What exists and is verified
 
 **Dynamics and corrector (engine/crtbp.py, engine/corrector.py)**

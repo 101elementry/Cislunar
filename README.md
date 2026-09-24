@@ -16,7 +16,8 @@ the circular restricted three-body problem:
 - DOP853 at a relative and absolute tolerance of 1e-12, with the Jacobi
   constant checked afterwards (drift about 1e-11 over 10 TU).
 
-Not modelled, anywhere:
+Not modelled, in any result below (the one exception is the fidelity
+comparison at the end of this section):
 
 - No lunar gravity field beyond the point mass: no J2, no spherical
   harmonics, no mascons.
@@ -38,6 +39,20 @@ work the simulated truth and the filter share these equations, so the
 filter meets no dynamic mismodelling: the errors and minimum detectable
 manoeuvres are a floor, and repeating the ladder on an ephemeris model
 is what would test it.
+
+The first step of that test exists.  `engine/ephemeris_dynamics.py` flies
+a spacecraft under the Earth, Moon and Sun as point masses at their
+DE440 positions (Moon-centred ICRF, km and seconds), and carries a CRTBP
+state into that model with the day's Earth-Moon distance and Kepler's
+time unit for it.  `python scripts/ephemeris_divergence.py` flies member
+49 that way, uncorrected, from 2026-01-01: it leaves the CRTBP orbit by
+100 km within a day and by 1,000 km within about six days, its perilune
+falls lap by lap (3,048, 2,869, 2,268 km) and it strikes the Moon on
+day 18.  From eight epochs across the month it passes 1,000 km in two
+to eight days.  Leaving out the Sun changes these very little, so the
+circular Earth-Moon orbit is the assumption that costs most.  A usable
+NRHO in this model needs the CRTBP orbit corrected into it (multiple
+shooting), which is not built yet.
 
 Orbits are named the way missions name them, by the libration point and
 branch plus the synodic resonance: the Gateway orbit is the 9:2 southern
@@ -87,6 +102,7 @@ python scripts/mars_transfers.py            # Mars launch windows, porkchop plot
 python scripts/artemis_profile.py           # lander and crew legs to the NRHO (about two minutes)
 python scripts/nrho_departure.py            # NRHO to a low Earth perigee for a Mars departure
 python scripts/mars_short_stay.py           # 30-day Mars stay with and without a Venus flyby
+python scripts/ephemeris_divergence.py      # the 9:2 NRHO flown uncorrected with the real Earth, Moon and Sun
 ```
 
 ## What the interface does

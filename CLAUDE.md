@@ -11,7 +11,10 @@ line in an examination, so clarity beats cleverness everywhere.
   Modules: crtbp, corrector, families, manifolds, stationkeeping,
   lambert, interplanetary (Sun-centred, km and seconds, not LU/TU),
   transfers (parking orbit to target, Lambert seed then correction),
-  ephemeris, estimation, observability, detection, rendezvous, kepler,
+  ephemeris, ephemeris_dynamics (Earth, Moon and Sun point masses at
+  their DE440 positions, Moon-centred ICRF, km and seconds; only the
+  fidelity comparison uses it), estimation, observability, detection,
+  rendezvous, kepler,
   frames, propagation, geometry, photometry, constraints, access.
 - `model/`   scenario dataclasses, JSON serialisation, family file
   loading, `orbits` (a Spacecraft to a state, correction to periodic),
