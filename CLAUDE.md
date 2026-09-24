@@ -14,7 +14,8 @@ line in an examination, so clarity beats cleverness everywhere.
   ephemeris, ephemeris_dynamics (Earth, Moon and Sun point masses at
   their DE440 positions, Moon-centred ICRF, km and seconds; only the
   fidelity comparison uses it), estimation, observability, detection,
-  rendezvous, kepler,
+  rendezvous, relative_navigation (a chaser's camera angles of a
+  target, chaser state known, target state estimated), kepler,
   frames, propagation, geometry, photometry, constraints, access.
 - `model/`   scenario dataclasses, JSON serialisation, family file
   loading, `orbits` (a Spacecraft to a state, correction to periodic),
@@ -109,6 +110,8 @@ python scripts/orbit_determination.py       # rung 2 (filters, consistency)
 python scripts/observability_sweep.py       # rung 2 (Cramer-Rao bound)
 python scripts/manoeuvre_detection.py       # rung 3 (about 15 minutes)
 python scripts/manoeuvre_estimation.py      # rung 4
+python scripts/relative_observability.py    # chaser camera: where range is observable (~30 s)
+python scripts/relative_navigation.py       # chaser camera: EKF/UKF Monte Carlo (~2.5 min)
 ```
 
 Read `HANDOFF.md` for the state of the work and the agreed next steps.

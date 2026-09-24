@@ -67,7 +67,7 @@ uses `engine`, `engine` imports nothing above it.
 
 | Layer | Contents | Rules |
 |---|---|---|
-| `engine/` | dynamics (`crtbp`), corrector, families, manifolds, station keeping, estimation, rendezvous, kepler, frames, propagation, geometry, photometry, constraints, access | numpy arrays and plain values in and out; no plotting, no file IO, no Dash, no model objects |
+| `engine/` | dynamics (`crtbp`), corrector, families, manifolds, station keeping, estimation, rendezvous, relative navigation, kepler, frames, propagation, geometry, photometry, constraints, access | numpy arrays and plain values in and out; no plotting, no file IO, no Dash, no model objects |
 | `model/` | `Scenario` and its objects, JSON save/load, family files, `orbits` (any spacecraft to a state, correction to periodic), `runner.run_scenario`, `sweep` | knows nothing about display |
 | `app/` | the Dash interface and Plotly figure builders | callbacks only read the model and call the engine through the runner |
 
@@ -103,6 +103,8 @@ python scripts/artemis_profile.py           # lander and crew legs to the NRHO (
 python scripts/nrho_departure.py            # NRHO to a low Earth perigee for a Mars departure
 python scripts/mars_short_stay.py           # 30-day Mars stay with and without a Venus flyby
 python scripts/ephemeris_divergence.py      # the 9:2 NRHO flown uncorrected with the real Earth, Moon and Sun
+python scripts/relative_observability.py    # chaser camera: where on the NRHO range is observable (~30 s)
+python scripts/relative_navigation.py       # chaser camera: EKF and UKF Monte Carlo over two laps (~2.5 min)
 ```
 
 ## What the interface does
@@ -147,6 +149,74 @@ scene's frame menu gains "Relative to X (LVLH)" for each spacecraft,
 the view rendezvous is flown in, with a keep-out sphere around the
 target.  The Examples menu loads a chaser 50 km behind a Gateway-like
 target with a camera.
+
+## Angles-only relative navigation near the NRHO
+
+The ground estimation pipeline moved onto the chaser's camera.  The
+question: where on the 9:2 NRHO does the three-body motion make the
+range to the target observable from camera angles alone, with no burns,
+and can a filter use it?  Under linear relative dynamics it never is: a
+relative trajectory scaled up by any factor points along the same line
+of sight at every instant (Woffinden and Geller, 2009), so only a known
+manoeuvre fixes the scale.
+
+`engine/relative_navigation.py` holds the measurement: the in-plane
+angle atan2(along-track, radial) and the out-of-plane angle
+asin(cross-track / range) of the chaser-to-target line of sight in the
+chaser's LVLH frame about the Moon.  It has an analytic Jacobian with
+respect to the target state (checked against central differences to
+5e-8) and 20 arcsec noise per axis, sampled every 10 minutes whenever
+the camera's Sun, Earth, Moon, illumination and magnitude constraints
+allow.  **Stated assumption: the chaser knows its own state perfectly**,
+and the filters estimate the target's 6-element rotating-frame state.
+The engine's EKF, UKF, batch least squares and Fisher information are
+used unchanged.  Everything is CRTBP truth with a CRTBP filter.
+
+`python scripts/relative_observability.py` (Study A, fig15) computes
+the Cramer-Rao bound on range and cross-range at the arc start.  It
+sweeps 24 start phases, 12-hour and one-lap arcs, and 10, 50 and 200 km
+separations, with a 1,000 km / 10 m/s prior and the same bound with a
+prior ten times weaker to tell data from prior.  Results:
+
+- Over a 12-hour arc, range is observed only on arcs that pass perilune
+  or end within half a day of it.  The bound is 0.4 to 0.7 km for arcs
+  through perilune, 8.6 km for the arc ending 1 hour before it, 41 km
+  for the arc starting 6.5 hours after it, and prior-limited (hundreds
+  of km) for every arc starting more than about a day from perilune.
+- A one-lap arc always contains a perilune, and range is then data-limited
+  everywhere: 4 m to 0.7 km depending on where the lap starts.
+- The range bound in km barely depends on the separation (0.51, 0.54
+  and 0.74 km at 10, 50 and 200 km through perilune).  The second-order
+  bending of the relative trajectory grows as the separation squared,
+  so the angle it makes grows as the separation.  The information about
+  the fractional range therefore grows as the separation squared, and
+  the absolute range precision stays about constant: range as a
+  fraction of the separation improves with distance.  Cross-range
+  scales with separation: 0.4, 2 and 8 m near apolune.
+- The linear model with the same times sits on the prior everywhere.
+  Its scale information is zero to rounding, and its range bound grows
+  exactly tenfold with a tenfold weaker prior.  A known 0.5 m/s radial
+  burn (the classical ruler) gives 0.06 to 0.12 km in either model,
+  from any phase.
+
+`python scripts/relative_navigation.py` (Study B, fig16) runs a 12-run
+Monte Carlo over two laps from apolune at 50 km.  The initial error is
+5 km in range, 0.5 km cross-range and 10 cm/s.  The reference is the
+posterior Cramer-Rao bound (the EKF run along the truth).  It is still
+4.9 km at day 0.5 and falls over the approach to the first perilune
+(1.3 km at day 3.0) to 0.24 km just after it.  It drifts back to 0.44 km
+by the end of the first lap and 0.83 km before the second perilune,
+and ends at 0.10 km.  Results:
+
+- The UKF warm-started from a batch fit (1 or 4 days) is consistent
+  (NEES 7.1 and 6.0 in [4.2, 8.1], NIS 1.99) and reaches that bound: a
+  final range error of 0.11 and 0.10 km.
+- The EKF is overconfident in every start.  At perilune its range sigma
+  collapses to metres while the error stays at 0.2 to 4 km (mean NEES
+  3e6 to 2e8).
+- Cold-started, even the UKF is inconsistent (NEES about 600).
+- The range information here is a second-order effect of the dynamics,
+  so a first-order filter cannot use it honestly.
 
 ## Crewed mission legs
 

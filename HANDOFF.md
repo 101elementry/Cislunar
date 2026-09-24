@@ -1,4 +1,4 @@
-# Handoff (updated 10 Sep 2026, local session)
+# Handoff (updated 24 Sep 2026, local session)
 
 Branch: `claude/cislunar-crtbp-halo-orbits-aelm0l`. Everything described
 here is committed. Read `CLAUDE.md` for the rules and `THESIS_BRIEF.md`
@@ -133,6 +133,150 @@ time unit for the day's distance, as the docstring explains.  Next:
 multiple shooting to correct member 49 into the ephemeris model, then
 use that trajectory as the truth for rungs 1 to 4 with the filter left
 on the CRTBP.
+
+## Angles-only relative navigation from a chaser, 24 Sep 2026
+
+The rungs 1 to 4 machinery moved onto a camera on a chaser near the 9:2
+NRHO.  The question: where on the NRHO does the three-body motion make
+range observable from angles alone, without burns (Woffinden and
+Geller 2009: never, under linear relative dynamics), and can a filter
+use it?  This is not in THESIS_BRIEF.md.  Whether it becomes a chapter
+is the supervisor's call.
+
+**Built.**
+- `engine/relative_navigation.py`:
+  - the chaser's LVLH basis about the Moon on rotating axes;
+  - the two camera angles and their analytic Jacobian;
+  - `make_camera_measurement`, a closure with `.jacobian` and
+    `.wraps_at_360`, so the EKF, UKF, batch and Fisher information run
+    unchanged;
+  - the linear-model chaser `x_T(t) - Phi(t) delta(0)`, optionally
+    with a known burn;
+  - the range and cross-range split of a covariance and of an error;
+  - the scale-direction basis.
+- `engine/observability.fisher_information` gained an optional
+  `basis`.  The default is bit-identical: `output/observability.csv`
+  rebuilds byte for byte.
+- `scripts/relative_observability.py` (Study A, fig15, about 30 s) and
+  `scripts/relative_navigation.py` (Study B, fig16, about 2.5 min).
+- Stated assumption: the chaser knows its own state perfectly.  The
+  truth and the filter are both CRTBP.  Epoch 2026-01-01, DE440 sky,
+  20 arcsec per axis every 10 min.
+- Camera: the Examples-menu camera with no range limit plus a 10 degree
+  Earth exclusion.  It excludes 1.0 % of the time on average (25.7 %
+  on the worst arc, from the magnitude limit when the chaser has
+  drifted thousands of km), and 4.0 % over Study B's two laps.
+
+**Checks.**
+- Analytic Jacobian against central differences at every measurement
+  of the one-lap arcs from apolune: worst 4.8e-8 at 10 km, 3.8e-8 at 50
+  and 200 km.  The step must scale with the range (1e-4 of it); the
+  default 38 m step gave 7.8e-5 at 10 km, which is truncation, not the
+  Jacobian.
+- Camera angles against an independent route through the Moon-centred
+  inertial frame (`rendezvous.relative_motion_lvlh`): 5e-6 arcsec.
+- The linear model: scale information at most 1.9e-7 of the prior's
+  (rounding), and its range bound grows by exactly 10.00 when the prior
+  sigma is multiplied by ten.  Its range is the prior, as it must be.
+- Rung 2 unchanged: `scripts/observability_sweep.py` rewrites
+  `observability.csv` byte for byte.  `engine/estimation.py` is
+  untouched, so `orbit_determination.py` was not rerun.  `validate.py`
+  passes; its only difference from the committed family file is
+  2e-4 in member 67's trivial eigenvalue pair (LAPACK rounding, see
+  fragility below), so the committed file was kept.
+
+**Study A numbers** (Cramer-Rao bound at arc start, 1,000 km and
+10 m/s prior; "prior-limited" means the bound moves by more than 10 %
+when the prior is weakened tenfold).
+- 12-hour arcs at 50 km:
+  - 0.48 km for the arc centred on perilune, 0.54 for the arc starting
+    at perilune;
+  - 8.6 km ending 1 h before perilune, 107 km ending 8 h before;
+  - 41 km starting 6.5 h after perilune, 246 km starting 13 h after;
+  - prior-limited for every start more than about 1 day before or
+    0.8 days after perilune.
+- One-lap arcs: data-limited from every start.  4 m to 0.73 km, worst
+  for starts 2 to 3 days before perilune.  Laps starting within a day
+  of perilune drift apart (50 km grows to 9,700 km; 200 km to
+  52,000 km), so those numbers are not "at 50 km".
+- Separation barely matters for range (0.51, 0.54, 0.74 km at 10, 50,
+  200 km through perilune): the bending is second order, so the
+  absolute range precision is set by noise and orbit curvature.
+  Cross-range is 0.4, 2 and 8 m near apolune.
+- Line-of-sight departure from the linear model over 12 h at 50 km:
+  10,400 arcsec from perilune, 3 arcsec at apolune, against 20 arcsec of
+  noise.  This is the whole signal.
+- Known 0.5 m/s radial burn at mid-arc: 0.06 to 0.12 km in both models
+  from every phase.  That beats the burn-free CRTBP bound everywhere:
+  by 5 to 8 times through perilune, and elsewhere the burn-free bound
+  is prior-limited.  A burn is the better ruler over half a day; the
+  nonlinearity is free and wins nothing unless the arc holds a
+  perilune.
+
+**Study B numbers** (12 runs, two laps from apolune at 50 km, pair
+14.5 to 300 km apart, 1,814 measurements, initial sigma 5 km range,
+0.5 km cross-range, 10 cm/s, q = 1e-9).
+- Posterior Cramer-Rao range bound: 4.9 km at day 0.5, 1.3 at day 3.0,
+  0.24 just after perilune, 0.44 at the end of the lap, 0.83 before the
+  second perilune, 0.10 at the end.  Cross-range 0.22 m at the end.
+- Bands for 12 runs: NEES [4.20, 8.11], NIS [1.03, 3.28].
+
+| filter | start | mean NEES | mean NIS | range error end km | filter sigma km |
+|---|---|---|---|---|---|
+| EKF | cold | 2.3e8 | 2.86 | 4.03 | 0.005 |
+| UKF | cold | 637 | 2.05 | 0.80 | 0.070 |
+| EKF | batch 1 d | 6.1e6 | 2.07 | 1.15 | 0.011 |
+| UKF | batch 1 d | 7.11 | 1.99 | 0.109 | 0.097 |
+| EKF | batch 4 d | 2.8e6 | 2.00 | 0.21 | 0.002 |
+| UKF | batch 4 d | 5.96 | 1.99 | 0.104 | 0.098 |
+
+Reading: the range information is real and usable, but only by the
+warm-started UKF, which reaches the bound.  The EKF believes it too
+early: its range sigma collapses at perilune to metres while the error
+stays hundreds of metres, because the information is a second-order
+effect and the EKF keeps first order only.  The cold start fails for
+both filters at the first few updates, where the cross-range collapses
+from 500 m to metres (the same initialisation lesson as rung 2).  The
+1-day batch leaves range at the prior (4.1 km rms) but still rescues
+the UKF, so the batch's job is the cross-range collapse, not the range.
+
+**Design decisions changed or added.**
+1. The UKF runs with alpha = 1, not the default 1e-3.  At 0.2 m
+   cross-range the default sigma points sit 1e-12 LU apart, the size of
+   the integrator's own error.  The central weight of -1e6 then made
+   the covariance indefinite at the second perilune (Cholesky failure).
+   The engine is unchanged; the script passes alpha.
+2. The Fisher information is accumulated on a basis whose first axis
+   is the scale direction delta(0).  Over a lap the condition number
+   is 1e16, and in the state's own axes the prior was lost to rounding
+   (negative variances in the linear case).
+3. Initial velocity sigma 10 cm/s, not 1 cm/s.  At 1 cm/s the velocity
+   prior alone pins the scale (the bound fell 5 to 2.8 km in hours),
+   which would mix the prior's range information with the dynamics'.
+4. The phase sweep has 24 starts around the whole orbit, not 12 from
+   perilune to apolune, because arcs just before perilune differ from
+   arcs just after it.
+5. Study B starts at apolune.  From perilune a 50 km, zero-LVLH-velocity
+   chaser is 10,000 km away after one lap.
+
+**Weak spots and open questions.**
+- The perfect chaser state.  A km-level chaser error enters the angles
+  directly and is not in either study; the next step is estimating
+  both vehicles or adding the chaser's covariance as consider
+  parameters.
+- CRTBP truth and filter: no mismodelling, so all numbers are floors.
+  The ephemeris model moves the NRHO by 100 km a day (fig14), but the
+  relative motion over 50 km may be much less sensitive; untested.
+- The bound is local: with 5 km of range error at 50 km the likelihood
+  is not Gaussian, and the batch or UKF may have secondary minima.
+- The lunar exclusion is measured from the Moon's centre.  The line of
+  sight crosses the Moon's disc in 0.05 % of samples, so it hardly
+  matters here, but a limb-aware constraint is the honest one.
+- A single epoch.  The Sun direction changes over the synodic month
+  and so will the exclusions.
+- The zero-LVLH-velocity start is not a natural formation.  A
+  drift-free relative orbit (for example from the monodromy's centre
+  subspace) would make the one-lap sweep cleaner.
 
 ## What exists and is verified
 
