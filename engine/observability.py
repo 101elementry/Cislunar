@@ -26,14 +26,29 @@ from engine import crtbp
 from engine.crtbp import MU
 
 
-def fisher_information(state0, measurements, prior_covariance=None, mu=MU):
+def fisher_information(state0, measurements, prior_covariance=None, mu=MU, basis=None):
     """
     Fisher information (6, 6) about the epoch state from a list of
     measurements (as built by estimation.simulate_measurements, only
     time_nondim, function and noise_sigma are used), evaluated along
     the trajectory that starts at state0.
+
+    basis : optional (6, 6) orthonormal matrix Q.  The information is
+        then about the coordinates q of the epoch state on Q's columns
+        (x = Q q), accumulated measurement by measurement as
+        (H Phi Q)^T R^-1 (H Phi Q), and the prior enters as
+        Q^T P0^-1 Q.  The numbers describe the same knowledge; the
+        point is rounding.  When one direction is almost unobserved
+        and the others very well observed (angles-only relative
+        navigation, where the information across the line of sight can
+        be 1e16 times that along the range), summing in the state's own
+        axes buries the weak direction in the rounding of the strong
+        ones.  Made a column of Q, it keeps its own diagonal entry and
+        is computed to full precision.  Default: the state's own axes.
     """
-    information = np.zeros((6, 6)) if prior_covariance is None else np.linalg.inv(prior_covariance)
+    if basis is None:
+        basis = np.eye(6)
+    information = np.zeros((6, 6)) if prior_covariance is None else basis.T @ np.linalg.inv(prior_covariance) @ basis
     times = np.array([m["time_nondim"] for m in measurements])
     if len(times) == 0:
         return information
@@ -47,7 +62,7 @@ def fisher_information(state0, measurements, prior_covariance=None, mu=MU):
             state_t, phi = crtbp.split_state_and_stm(sol.y[:, column])
         else:
             state_t, phi = np.asarray(state0, dtype=float), np.eye(6)
-        h = measurement["function"].jacobian(state_t) @ phi
+        h = measurement["function"].jacobian(state_t) @ phi @ basis
         r_inverse = np.diag(1.0 / np.asarray(measurement["noise_sigma"], dtype=float) ** 2)
         information = information + h.T @ r_inverse @ h
     return information

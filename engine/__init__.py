@@ -22,6 +22,9 @@ Modules
   detection      burn injection, per-night innovation test, Monte Carlo
                  minimum detectable burn, burn estimation
   rendezvous     LVLH relative motion and two-impulse rendezvous
+  relative_navigation
+                 chaser camera angles of a target (analytic Jacobian),
+                 the linear relative model, range and cross-range split
   kepler         two-body elements about the Moon or Earth <-> state
   frames         time, Sun direction, Earth rotation, station positions,
                  inertial frames for display
