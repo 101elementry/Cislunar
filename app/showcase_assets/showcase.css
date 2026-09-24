@@ -213,6 +213,12 @@ ul.assumptions li { margin: 0 0 10px; }
 .play:hover { border-color: #ffffff; }
 .play.playing { background: #ffffff; border-color: #ffffff; color: #000000; }
 
+/* Choice buttons on the flat orbit page share the play button's look;
+   the chosen one is filled white, like a playing clock. */
+.play.choice { min-width: 0; letter-spacing: 0.14em; }
+.transport-gap { margin-left: 12px; }
+canvas.plot { display: block; }
+
 .speed { display: inline-flex; align-items: center; gap: 10px; }
 .speed select {
   padding: 7px 8px;

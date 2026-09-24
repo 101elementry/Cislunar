@@ -41,7 +41,8 @@ SITE_DIRECTORY = os.path.join(REPOSITORY_ROOT, "site")
 ASSET_SOURCES = [os.path.join(REPOSITORY_ROOT, "app", "assets", "playback.js"),
                  os.path.join(REPOSITORY_ROOT, "app", "assets", "zoom_to_cursor.js"),
                  os.path.join(REPOSITORY_ROOT, "app", "showcase_assets", "showcase.css"),
-                 os.path.join(REPOSITORY_ROOT, "app", "showcase_assets", "showcase.js")]
+                 os.path.join(REPOSITORY_ROOT, "app", "showcase_assets", "showcase.js"),
+                 os.path.join(REPOSITORY_ROOT, "app", "showcase_assets", "orbit_views.js")]
 
 # The interface gets Plotly from Dash; the static pages load the same
 # version from Plotly's CDN.  The playback script reaches into Plotly's
@@ -159,6 +160,109 @@ def scene_halo_to_nrho():
                 "The 9:2 is not the last member. The family runs on past it to a perilune under 2,000 km, "
                 "close to the 5:1, where the orbit is even more nearly rectilinear."],
             "facts": facts}
+
+
+SIDE_ON_MEMBERS = [49, 20, 0]
+SIDE_ON_SAMPLES = 240
+
+
+def one_period_moon_centred(family, index):
+    """
+    One period of a family member sampled evenly in time, in the
+    Moon-centred rotating frame: positions in km, and the distance from
+    the Moon's centre (km) and speed in the rotating frame (km/s) at each
+    sample.  Evenly spaced in time, so the spacing of the samples shows
+    how fast the spacecraft moves.
+    """
+    period_s = crtbp.time_to_days(family[index]["period"]) * crtbp.SECONDS_PER_DAY
+    step_s = period_s / SIDE_ON_SAMPLES
+    # Half a step of margin so the grid, which stops at the last whole
+    # step, ends exactly one period after it starts.
+    scenario = Scenario(name=f"Member {index}", epoch_utc="2026-01-01T00:00:00",
+                        duration_days=(period_s + 0.5 * step_s) / crtbp.SECONDS_PER_DAY, time_step_s=step_s)
+    scenario.add(Spacecraft(name="orbit", source="family", family_name="L2 southern halo", family_index=index,
+                            propagation="periodic"))
+    results = runner.run_scenario(scenario, FAMILIES)
+    trajectories, _, _, _, _ = displayed_frame(results, "moon_rotating")
+    states = trajectories["orbit"]
+    positions_km = crtbp.length_to_km(states[:, :3])
+    return {"x": np.round(positions_km[:, 0]).tolist(), "y": np.round(positions_km[:, 1]).tolist(),
+            "z": np.round(positions_km[:, 2]).tolist(),
+            "distance_km": np.round(np.linalg.norm(positions_km, axis=1)).tolist(),
+            "speed_km_s": np.round(crtbp.velocity_to_km_s(np.linalg.norm(states[:, 3:], axis=1)), 3).tolist(),
+            "period_days": float(crtbp.time_to_days(family[index]["period"]))}
+
+
+def thumbnail_side_on(orbits, moon_radius_km, size=(320, 200)):
+    """SVG of the orbits seen side-on (x across, z up), Moon-centred, with the Moon to scale."""
+    everything = np.vstack([np.column_stack([orbit["x"], orbit["z"]]) for orbit in orbits.values()])
+    lower = everything.min(axis=0)
+    upper = everything.max(axis=0)
+    scale = 0.84 * min(size[0] / (upper[0] - lower[0]), size[1] / (upper[1] - lower[1]))
+    centre = np.array(size) / 2.0
+
+    def pixel(x, z):
+        return (centre[0] + scale * (x - (lower[0] + upper[0]) / 2.0),
+                centre[1] - scale * (z - (lower[1] + upper[1]) / 2.0))
+
+    parts = [f'<svg viewBox="0 0 {size[0]} {size[1]}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">']
+    for key, orbit in orbits.items():
+        points = " ".join("{:.1f},{:.1f}".format(*pixel(x, z)) for x, z in zip(orbit["x"][::3], orbit["z"][::3]))
+        highlighted = key == str(GATEWAY_MEMBER)
+        parts.append(f'<polyline points="{points}" fill="none" stroke="{figures.EARTHSHINE if highlighted else "#4a4a4a"}" '
+                     f'stroke-width="{1.6 if highlighted else 1.0}"/>')
+    moon_x, moon_y = pixel(0.0, 0.0)
+    parts.append(f'<circle cx="{moon_x:.1f}" cy="{moon_y:.1f}" r="{max(2.5, moon_radius_km * scale):.1f}" '
+                 f'fill="{figures.REGOLITH}"/></svg>')
+    return "".join(parts)
+
+
+def scene_nrho_side_on():
+    family = FAMILIES["L2 southern halo"]
+    nrho = family[GATEWAY_MEMBER]
+
+    def custom_page():
+        orbits = {str(index): one_period_moon_centred(family, index) for index in SIDE_ON_MEMBERS}
+        labels = {str(index): f"{index}" + (f" · {resonance_label(family[index])}"
+                                             if resonance_label(family[index]) else "")
+                  for index in SIDE_ON_MEMBERS}
+        page_data = {"orbits": orbits, "labels": labels, "order": [str(index) for index in SIDE_ON_MEMBERS],
+                     "moon_radius_km": float(crtbp.MOON_RADIUS_KM), "highlight": figures.EARTHSHINE,
+                     "moon_color": figures.REGOLITH}
+        speeds = orbits[str(GATEWAY_MEMBER)]["speed_km_s"]
+        facts = [("Orbit", gateway_orbit_name()),
+                 ("Apolune radius", f"{crtbp.length_to_km(nrho['apolune_radius']):,.0f} km"),
+                 ("Speed in the rotating frame", f"{min(speeds):.2f} km/s at apolune, {max(speeds):.2f} km/s at perilune"),
+                 ("Compared with", "members 20 and 0 of the same family"),
+                 ("Frame", "rotating, Moon-centred, km"),
+                 ("Samples", f"{SIDE_ON_SAMPLES} per period, evenly spaced in time")]
+        return page_data, facts, thumbnail_side_on(orbits, crtbp.MOON_RADIUS_KM)
+
+    return {"slug": "nrho-side-on", "kicker": "Orbit geometry", "title": "Why near rectilinear",
+            "tagline": "The 9:2 NRHO seen from three sides, flown in true time, beside two wider members "
+                       "of its family.",
+            "custom_page": custom_page,
+            "paragraphs": [
+                "Seen from the side, the orbit Gateway will fly is almost a straight line: a long, slow stretch "
+                "about 70,000 km below the Moon's south pole, then a quick pass about 1,500 km above the north "
+                "pole and back. That is where the name near rectilinear halo orbit comes from.",
+                "The spacecraft moves in true time here. One period is sampled at evenly spaced instants, so "
+                "how fast the dot moves across the screen is how fast the spacecraft moves in the rotating "
+                "frame. It spends most of its 6.56 days crossing the far end and only a few hours rounding "
+                "the Moon.",
+                "Looked at from the Earth, along the Earth-Moon line, the same orbit opens into a loop, so "
+                "near rectilinear describes the side view only. The two wider orbits are members 20 and 0 of "
+                "the same family. Member 0 is a flat loop out near L2 that does not look like a line from any "
+                "side; stepping from it to member 49 is the family tipping over into the NRHOs."],
+            "look_for": [
+                "Side-on, the dot crawls along the bottom of the orbit for days, then swings round the Moon "
+                "in a few hours.",
+                "Southern: almost all of the orbit lies below the Moon, so the spacecraft spends most of each "
+                "lap high above the south pole.",
+                "Choose the view from Earth and the line opens into a loop.",
+                "The Moon is drawn to scale. Distances are measured from the Moon's centre; subtract its "
+                "1,737 km radius for altitude."],
+            "facts": None}
 
 
 def scene_manifolds():
@@ -534,7 +638,7 @@ def scene_mars_transfer():
             "facts": None}
 
 
-SCENES = [scene_halo_to_nrho, scene_manifolds, scene_dro_two_frames, scene_sydney_tracking,
+SCENES = [scene_halo_to_nrho, scene_nrho_side_on, scene_manifolds, scene_dro_two_frames, scene_sydney_tracking,
           scene_proximity, scene_lander, scene_crew, scene_lunar_relay, scene_mars_transfer]
 
 
@@ -739,6 +843,66 @@ def scene_page(spec, prepared, neighbours, number):
     return page_shell(f"{spec['title']} | Cislunar", spec["tagline"], body, scripts=PAGE_SCRIPTS)
 
 
+def orbit_views_page(spec, page_data, facts_rows, neighbours, number):
+    """
+    HTML of a scene drawn as flat projections rather than a 3D figure:
+    one canvas, a choice of viewing direction and of orbit, and a clock
+    through one period.  app/showcase_assets/orbit_views.js draws it.
+    """
+    view_buttons = "".join(f'<button class="play choice" type="button" data-view="{key}">{html.escape(text)}</button>'
+                           for key, text in [("xz", "Side-on"), ("yz", "From Earth"), ("xy", "From above")])
+    orbit_buttons = "".join(f'<button class="play choice" type="button" data-orbit="{key}">'
+                            f'{html.escape(page_data["labels"][key])}</button>' for key in page_data["order"])
+    n_samples = len(page_data["orbits"][page_data["order"][0]]["x"])
+    paragraphs = "".join(f"<p>{html.escape(text)}</p>" for text in spec["paragraphs"])
+    look_for = "".join(f"<li><span>{html.escape(text)}</span></li>" for text in spec["look_for"])
+    facts = "".join(f"<tr><th>{html.escape(label)}</th><td>{html.escape(value)}</td></tr>"
+                    for label, value in facts_rows)
+    previous_spec, next_spec = neighbours
+    body = f"""
+{TOPBAR}
+<main>
+  <section class="scene-head">
+    <div>
+      <p class="label">{number:02d} / {html.escape(spec['kicker'])}</p>
+      <h1>{html.escape(spec['title'])}</h1>
+    </div>
+    <p class="tagline">{html.escape(spec['tagline'])}</p>
+  </section>
+  <section class="stage"><figure class="view"><figcaption id="view-caption">rotating frame, Moon-centred</figcaption>
+    <div class="holder"><canvas id="orbit-canvas" class="plot" role="img"
+      aria-label="Three members of the L2 southern halo family drawn as a flat projection, with a spacecraft moving in true time."></canvas></div></figure></section>
+  <section class="transport">
+    <span class="label">View</span>{view_buttons}
+    <span class="label transport-gap">Orbit</span>{orbit_buttons}
+  </section>
+  <section class="transport">
+    <button id="play-button" class="play" type="button">Play</button>
+    <input id="scrubber" type="range" min="0" max="{n_samples - 1}" value="0" step="1" aria-label="Time">
+    <span id="time-readout" class="readout"></span>
+  </section>
+  <section class="notes">
+    <div class="prose"><p class="label">Overview</p>{paragraphs}</div>
+    <div class="side">
+      <p class="label">What to look for</p><ol class="look-for">{look_for}</ol>
+      <p class="label">Values from this run</p><table class="facts">{facts}</table>
+      <p class="hint">Choose a view and an orbit. Drag the slider to step through one period.</p>
+    </div>
+  </section>
+  <nav class="pager">
+    <a href="{previous_spec['slug']}.html"><span class="label">Previous</span>
+      <span class="pager-title">{html.escape(previous_spec['title'])}</span></a>
+    <a href="{next_spec['slug']}.html"><span class="label">Next</span>
+      <span class="pager-title">{html.escape(next_spec['title'])}</span></a>
+  </nav>
+</main>
+{FOOTER}
+<script type="application/json" id="page-data">{embedded_json(page_data)}</script>
+"""
+    return page_shell(f"{spec['title']} | Cislunar", spec["tagline"], body,
+                      scripts='<script src="assets/orbit_views.js"></script>')
+
+
 def index_page(cards, hero_data):
     """
     HTML of the landing page.  cards is a list of (spec, thumbnail svg);
@@ -846,6 +1010,16 @@ def build_site(directory=SITE_DIRECTORY):
     cards = []
     for k, spec in enumerate(specs):
         print(f"  running {spec['slug']} ...")
+        neighbours = (specs[k - 1], specs[(k + 1) % len(specs)])
+        path = os.path.join(directory, f"{spec['slug']}.html")
+        if "custom_page" in spec:
+            # A flat page with its own script instead of the 3D scene page.
+            page_data, facts_rows, thumbnail = spec["custom_page"]()
+            with open(path, "w") as handle:
+                handle.write(orbit_views_page(spec, page_data, facts_rows, neighbours, k + 1))
+            written.append(path)
+            cards.append((spec, thumbnail))
+            continue
         if "custom" in spec:
             prepared, thumbnail = spec["custom"]()
         else:
@@ -856,8 +1030,6 @@ def build_site(directory=SITE_DIRECTORY):
                 thumbnail_frame = "rotating"
             trajectories, manifolds, _, bodies, _ = displayed_frame(results, thumbnail_frame)
             thumbnail = thumbnail_svg(trajectories, manifolds, bodies, BODY_RADII)
-        neighbours = (specs[k - 1], specs[(k + 1) % len(specs)])
-        path = os.path.join(directory, f"{spec['slug']}.html")
         with open(path, "w") as handle:
             handle.write(scene_page(spec, prepared, neighbours, k + 1))
         written.append(path)
